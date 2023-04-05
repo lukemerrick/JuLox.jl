@@ -1,0 +1,2 @@
+#!/bin/sh
+julia --startup-file=no --color=yes --project=@. -q -- cli_julox.jl "$@"
