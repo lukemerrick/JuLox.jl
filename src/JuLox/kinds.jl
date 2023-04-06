@@ -4,6 +4,8 @@
 # enumeration values as used in @K_str
 const _kind_names =
 [
+    "\""  # TODO: Reorder (maybe create delimeters section?)
+
     "BEGIN_TRIVIA"
         "None"         # Placeholder; never emitted by lexer
         "EndMarker"    # EOF
@@ -14,8 +16,8 @@ const _kind_names =
 
     "BEGIN_ERRORS"
         # Tokenization errors
-        "ErrorInvalidNumericConstant"
-        "ErrorInvalidOperator"
+        "ErrorUnknownCharacter"
+        "ErrorUnterminatedString"
         # Generic error
         "error"
     "END_ERRORS"
@@ -186,8 +188,8 @@ const _nonunique_kind_names = Set([
     K"Whitespace"
     K"NewlineWs"
 
-    K"ErrorInvalidNumericConstant"
-    K"ErrorInvalidOperator"
+    K"ErrorUnknownCharacter"
+    K"ErrorUnterminatedString"
 
     K"Identifier"
     K"Number"
@@ -214,8 +216,8 @@ end
 
 # Error kind => description
 _token_error_descriptions = Dict{Kind, String}(
-    K"ErrorInvalidNumericConstant" => "invalid numeric constant",
-    K"ErrorInvalidOperator" => "invalid operator",
+    K"ErrorUnknownCharacter" => "unknown character",
+    K"ErrorUnterminatedString" => "unterminated string",
     K"error" => "unknown error token",
 )
 

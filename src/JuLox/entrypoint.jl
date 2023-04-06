@@ -15,10 +15,10 @@ function _read_line_or_eof()::Union{String,Nothing}
     while true
         eof(stdin) && return nothing
         next_char = read(stdin, Char)
-        push!(input, next_char)
         if next_char == '\n'
             return String(input)
         end
+        push!(input, next_char)
     end
 end
 
@@ -37,7 +37,7 @@ function run(line::String)
     exit_code = 0
     try
         # For now, the result is the tokens.
-        result = tokenize(line)
+        result = collect(tokenize(line))
     catch e
         !isa(e, Union{SyntaxError}) && rethrow()
         error = e
