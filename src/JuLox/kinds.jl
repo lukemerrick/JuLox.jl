@@ -84,6 +84,8 @@ const _kind_names =
         "toplevel"
         "parens"
     "END_SYNTAX_KINDS"
+
+    "TOMBSTONE" # Empty placeholder for kind to be filled later
 ]
 
 """

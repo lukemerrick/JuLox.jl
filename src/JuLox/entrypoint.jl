@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox.Tokenizer: tokenize
+using Fractal.JuLox.Tokenize: tokenize, startbyte, endbyte, kind, @K_str
 using Fractal.JuLox: SyntaxError
 
 # TODO: Restrict typing of `result`.
@@ -47,7 +47,12 @@ function run(line::String)
         exit_code = 65
     elseif !isnothing(result)
         # For now, just print the tokens.
-        collect(map(println, result))
+        for t in result
+            print(stdout, rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
+            print(stdout, rpad(kind(t), 15, " "))
+            kind(t) != K"EndMarker" && print(stdout, rpad(line[startbyte(t): endbyte(t)], 30, " "))
+            println()
+        end
     else
         println()
     end

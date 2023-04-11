@@ -1,6 +1,6 @@
 """Heavily adapted from JuliaSyntax.jl on 2023.04.05"""
 
-module Tokenizer
+module Tokenize
 using Fractal.JuLox: SyntaxError, Kind, @K_str
 import Fractal.JuLox: kind, is_literal, is_error
 
@@ -180,7 +180,7 @@ function readchar(l::Lexer)
     c = readchar(l._io)
     l._chars = (l._chars[2], l._chars[3], c)
     l._position += 1
-    return c
+    return l._chars[1]
 end
 
 """
