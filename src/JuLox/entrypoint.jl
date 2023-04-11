@@ -47,10 +47,12 @@ function run(line::String)
         exit_code = 65
     elseif !isnothing(result)
         # For now, just print the tokens.
+        println("Location   Kind           String              ")
+        println("----------------------------------------------")
         for t in result
-            print(stdout, rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
-            print(stdout, rpad(kind(t), 15, " "))
-            kind(t) != K"EndMarker" && print(stdout, rpad(line[startbyte(t): endbyte(t)], 30, " "))
+            print(rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
+            print(rpad(kind(t), 15, " "))
+            kind(t) != K"EndMarker" && print(rpad("\"$(line[startbyte(t): endbyte(t)])\"", 20, " "))
             println()
         end
     else

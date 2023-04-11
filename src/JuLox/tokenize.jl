@@ -230,7 +230,7 @@ function next_token(l::Lexer)
     start_token!(l)
 
     # If we are in a string, tokenize until the closing quote mark.
-    instring(l) && return lex_string(l)
+    instring(l) && peekchar(l) != '"' && return lex_string(l)
 
     # If we are *not* in a string, tokenize normally.
     c = readchar(l)
@@ -285,11 +285,14 @@ function next_token(l::Lexer)
 end
 
 # Lex string, a quote `"` has been tokenized already.
-function lex_string(l)
+function lex_string(l::Lexer)
     @assert instring(l)
+    
+    # Read through the string.
     pc = peekchar(l)
     while pc != '"' && pc != EOF_CHAR
         readchar(l)
+        pc = peekchar(l)
     end
 
     # Check for unterminated string case.
