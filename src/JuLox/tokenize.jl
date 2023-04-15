@@ -225,7 +225,7 @@ end
 
 Returns the next `RawToken`.
 """
-function next_token(l::Lexer)
+function next_token(l::Lexer)::RawToken
     # Advance starting position to the next token.
     start_token!(l)
 
