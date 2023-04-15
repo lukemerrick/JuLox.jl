@@ -1,7 +1,7 @@
 """Heavily adapted from JuliaSyntax.jl on 2023.04.05"""
 
 module Tokenize
-using Fractal.JuLox: SyntaxError, Kind, @K_str
+using Fractal.JuLox: Kind, @K_str
 import Fractal.JuLox: kind, is_literal, is_error
 
 # Create EOF sentinel value.
@@ -297,6 +297,11 @@ function lex_string(l::Lexer)
 
     # Check for unterminated string case.
     if pc == EOF_CHAR
+        # Normally a closing quote terminates a string via a call to `lex_quote`, but if
+        # there isn't a closing quote, we must terminate here in `lex_string` instead.
+        l._in_string = false
+        # TODO: Consider if emitting a token with start byte i and end byte i - 1 should be
+        # avoided.
         return emit_error(l, K"ErrorUnterminatedString")
     else
         return emit(l, K"String")
