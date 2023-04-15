@@ -1,6 +1,6 @@
 module Entrypoint
-using Fractal.JuLox.Tokenize: tokenize, startbyte, endbyte, kind, @K_str
-using Fractal.JuLox: SyntaxError
+using Fractal.JuLox.Tokenize: tokenize, startbyte, endbyte
+using Fractal.JuLox: @K_str, kind
 
 # TODO: Restrict typing of `result`.
 struct RunResult
@@ -22,36 +22,40 @@ function _read_line_or_eof()::Union{String,Nothing}
     end
 end
 
-# Pretty error printing when something in the users code is wrong.
-function report_error(error::SyntaxError)
-    error_name = error |> typeof |> string |> x -> split(x, '.')[end]
-    println(
-        "[line $(error.line) position $(error.position)] " * 
-        "$(error_name): $(error.message)"
-    )
-end
+# TODO: Adapt error reporting to new ParseStream approach.
+# # Pretty error printing when something in the users code is wrong.
+# function report_error(error::SyntaxError)
+#     error_name = error |> typeof |> string |> x -> split(x, '.')[end]
+#     println(
+#         "[line $(error.line) position $(error.position)] " *
+#         "$(error_name): $(error.message)"
+#     )
+# end
 
 function run(line::String)
     result = nothing
-    error = nothing
     exit_code = 0
-    try
-        # For now, the result is the tokens.
-        result = collect(tokenize(line))
-    catch e
-        !isa(e, Union{SyntaxError}) && rethrow()
-        error = e
-    end
-    if !isnothing(error)
-        report_error(error)
-        exit_code = 65
-    elseif !isnothing(result)
+    # TODO: Adapt error reporting to new ParseStream approach.
+    # error = nothing
+    # try
+    #     # For now, the result is the tokens.
+    #     result = collect(tokenize(line))
+    # catch e
+    #     !isa(e, Union{SyntaxError}) && rethrow()
+    #     error = e
+    # end
+    # if !isnothing(error)
+    #     report_error(error)
+    #     exit_code = 65
+    # elseif !isnothing(result)
+    result = collect(tokenize(line))
+    if !isnothing(result)
         # For now, just print the tokens.
-        println("Location   Kind           String              ")
-        println("----------------------------------------------")
+        println("Location   Kind                     Text                ")
+        println("--------------------------------------------------------")
         for t in result
             print(rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
-            print(rpad(kind(t), 15, " "))
+            print(rpad(kind(t), 25, " "))
             kind(t) != K"EndMarker" && print(rpad("\"$(line[startbyte(t): endbyte(t)])\"", 20, " "))
             println()
         end
