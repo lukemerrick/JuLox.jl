@@ -55,6 +55,8 @@ struct TaggedRange
     last_token::Int
 end
 
+kind(r::TaggedRange) = r.kind
+
 """
     ParseStream(text::AbstractString,          index::Integer=1)
     ParseStream(text::IO;                                      )
@@ -419,7 +421,7 @@ function build_tree(::Type{NodeType}, stream::ParseStream;
                 k -= 1
             end
             children = (stack[n].node for n = k:length(stack))
-            node = NodeType(type(r), children...)
+            node = NodeType(kind(r), children...)
             resize!(stack, k - 1)
             push!(stack, (first_token=r.first_token, node=node))
             j += 1
@@ -455,6 +457,77 @@ end
 
 #-------------------------------------------------------------------------------
 # Parser.
+
+
+# function _parse!()
+
+function parse_expression(ps::ParseStream)
+    # parse_equality(ps)
+    # TODO: Replace with full hierarchy of calls.
+    parse_plus(ps)
+end
+
+# function parse_equality(ps::ParseStream)
+#     parse_comparison(ps::ParseStream)
+
+#     k_left, k_op, k_right = peek(ps), peek(ps, 2), peek(ps, 3)
+#     if k_op ∈ KSet"!= =="
+
+
+# end
+
+function parse_plus(ps::ParseStream)
+    mark = position(ps)
+
+    # Handle the initial left operand.
+    parse_unary(ps)
+
+    # Handle the next operation. If there are more operations later, we'll repeat, since the
+    # completed operation becomes the left operand.
+    while peek(ps) == K"+"
+        bump(ps)
+        parse_unary(ps)
+        emit(ps, mark, K"+")
+    end
+end
+
+function parse_unary(ps::ParseStream)
+    if peek(ps) ∈ KSet"! -"
+        mark = position(ps)
+        bump(ps)
+        parse_primary(ps)
+        emit(ps, mark, K"unary")
+    else
+        parse_primary(ps)
+    end
+end
+
+function parse_primary(ps::ParseStream)
+    mark = position(ps)
+    k = peek(ps)
+    if k ∈ KSet"false true nil Number String"
+        bump(ps)
+        emit(ps, mark, k)
+    elseif k == K"("
+        # Consume the left parenthesis.
+        bump(ps)
+
+        # Handle parenthesized expression.
+        parse_expression(ps)
+
+        # Parse right parenthesis.
+        # TODO: Error handling.
+        mark = position(ps)
+        if peek(ps) == K")"
+            bump(ps)
+        else
+            error("We need a closing parenthesis around this expression!")
+        end
+    else
+        error("Parsing primary but didn't get an expected token.")
+    end
+end
+
 
 
 #-------------------------------------------------------------------------------
@@ -552,17 +625,10 @@ end
 # TODO: Re-evaluate simplifying to single function, rather than parseall, parsestmt, parseatom.
 function parseall(::Type{T}, text::AbstractString, index::Int=1) where {T}
     stream = ParseStream(text, index)
-
-    # TODO: Remove this!!!
-    # For now, just tokenize.
-    while peek(stream) != K"EndMarker"
-        bump(stream)
+    parse_expression(stream)
+    if peek(stream) != K"EndMarker"
+        emit_diagnostic(stream, "unexpected text after parsing input")
     end
-    # TODO: Actually parse!
-    # _parse!(stream)
-    # if peek(stream) != K"EndMarker"
-    #     emit_diagnostic(stream, "unexpected text after parsing input")
-    # end
     tree = build_tree(T, stream; wrap_toplevel_as_kind=K"toplevel")
     tree, last_byte(stream) + 1
 end
