@@ -31,49 +31,51 @@ end
 #     )
 # end
 
-# function run(line::String)
-#     result = nothing
-#     exit_code = 0
-#     # TODO: Adapt error reporting to new ParseStream approach.
-#     # error = nothing
-#     # try
-#     #     # For now, the result is the tokens.
-#     #     result = collect(Tokenize.tokenize(line))
-#     # catch e
-#     #     !isa(e, Union{SyntaxError}) && rethrow()
-#     #     error = e
-#     # end
-#     # if !isnothing(error)
-#     #     report_error(error)
-#     #     exit_code = 65
-#     # elseif !isnothing(result)
-#     result = collect(Tokenize.tokenize(line))
-#     if !isnothing(result)
-#         # For now, just print the tokens.
-#         println("Location   Kind                     Text                ")
-#         println("--------------------------------------------------------")
-#         for t in result
-#             print(rpad(string(Tokenize.startbyte(t), "-", Tokenize.endbyte(t)), 11, " "))
-#             print(rpad(kind(t), 25, " "))
-#             if kind(t) != K"EndMarker"
-#                 text = line[Tokenize.startbyte(t): Tokenize.endbyte(t)]
-#                 print(rpad("\"$(text)\"", 20, " "))
-#             end
-#             println()
-#         end
-#     else
-#         println()
-#     end
-#     return exit_code
-# end
+function run_just_tokenize(line::String)
+    result = nothing
+    exit_code = 0
+    # TODO: Adapt error reporting to new ParseStream approach.
+    # error = nothing
+    # try
+    #     # For now, the result is the tokens.
+    #     result = collect(Tokenize.tokenize(line))
+    # catch e
+    #     !isa(e, Union{SyntaxError}) && rethrow()
+    #     error = e
+    # end
+    # if !isnothing(error)
+    #     report_error(error)
+    #     exit_code = 65
+    # elseif !isnothing(result)
+    result = collect(Tokenize.tokenize(line))
+    if !isnothing(result)
+        # For now, just print the tokens.
+        println("Location   Kind                     Text                ")
+        println("--------------------------------------------------------")
+        for t in result
+            print(rpad(string(Tokenize.startbyte(t), "-", Tokenize.endbyte(t)), 11, " "))
+            print(rpad(kind(t), 25, " "))
+            if kind(t) != K"EndMarker"
+                text = line[Tokenize.startbyte(t): Tokenize.endbyte(t)]
+                print(rpad("\"$(text)\"", 20, " "))
+            end
+            println()
+        end
+    else
+        println()
+    end
+    return exit_code
+end
 
-function run(line::String)
+function run_parse(line::String)
     exit_code = 0
     tree, next_byte = Parse.parseall(Parse.PlaceholderNode, line)
-    println(tree)
+    show(stdout, tree, line)
     println("Next byte: $(next_byte)")
     return exit_code
 end
+
+run(line::String) = run_parse(line)
 
 
 """Create a super lightweight REPL experience."""

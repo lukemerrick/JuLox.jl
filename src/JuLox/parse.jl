@@ -2,7 +2,8 @@
 
 module Parse
 using Fractal.JuLox.Tokenize: Tokenize, RawToken, kind, startbyte, endbyte
-using Fractal.JuLox: Kind, @K_str, is_whitespace
+using Fractal.JuLox: Kind, @K_str, @KSet_str, is_whitespace, is_error
+import Fractal.JuLox: kind
 
 #-------------------------------------------------------------------------------
 # The ParseStream struct and related structs.
@@ -180,11 +181,11 @@ last_byte(stream::ParseStream) = _next_byte(stream) - 1
     # unrolled optimized version for that fast path.
     i = stream.lookahead_index
     @inbounds if n == 1 && i + 2 <= length(stream.tokens)
-        if !is_whitespace(stream.lookahead[i])
+        if !is_whitespace(stream.tokens[i])
             return i
         end
         i += 1
-        if !is_whitespace(stream.lookahead[i])
+        if !is_whitespace(stream.tokens[i])
             return i
         end
     end
@@ -266,7 +267,7 @@ function bump(stream::ParseStream; error=nothing)
     emark = position(stream)
     _bump_until_n(stream, _lookahead_index(stream, 1))
     if !isnothing(error)
-        emit(stream, emark, K"error", flags, error=error)
+        emit(stream, emark, K"error", error=error)
     end
     return position(stream)
 end
@@ -278,7 +279,7 @@ function bump_trivia(stream::ParseStream; error=nothing)
     emark = position(stream)
     _bump_until_n(stream, _lookahead_index(stream, 1) - 1)
     if !isnothing(error)
-        emit(stream, emark, K"error", flags, error=error)
+        emit(stream, emark, K"error", error=error)
     end
     return position(stream)
 end
@@ -303,7 +304,7 @@ function emit(stream::ParseStream, mark::ParseStreamPosition, kind::Kind; error=
         # nested.
         fbyte = startbyte(stream.tokens[first_token])
         lbyte = endbyte(stream.tokens[stream.finished_token_index])
-        emit_diagnostic(stream, fbyte:lbyte, error=error)
+        emit_diagnostic(stream, fbyte:lbyte, error)
     end
     push!(stream.ranges, range)
     return position(stream)
@@ -387,8 +388,7 @@ function build_tree(::Type{NodeType}, stream::ParseStream;
     i = firstindex(tokens)
     j = firstindex(ranges)
     while true
-        last_token = j <= lastindex(ranges) ?
-                     ranges[j].last_token : lastindex(tokens)
+        last_token = j <= lastindex(ranges) ? ranges[j].last_token : stream.finished_token_index
         # Process tokens to nodes for all tokens used by the next internal node
         while i <= last_token
             t = tokens[i]
@@ -494,13 +494,63 @@ function PlaceholderNode(k::Kind, args::PlaceholderNode...)
     return PlaceholderNode(k, span, children)
 end
 
+kind(node::PlaceholderNode) = node.kind
+span(node::PlaceholderNode) = node.span
+children(node::PlaceholderNode) = node.args
 haschildren(node::PlaceholderNode) = !(node.args isa Tuple{})
+function is_trivia(node::PlaceholderNode)
+    return is_whitespace(kind(node)) || kind(node) ∈ KSet"None EndMarker ( ) { }"
+end
+
+# Pretty printing
+Base.summary(io::IO, node::PlaceholderNode) = show(io, kind(node))
+function _show_green_node(io, node, indent, pos, str)
+    posstr = "$(lpad(pos, 6)):$(rpad(pos+span(node)-1, 6)) │"
+    is_leaf = !haschildren(node)
+    if is_leaf
+        line = string(posstr, indent, summary(node))
+    else
+        line = string(posstr, indent, '[', summary(node), ']')
+    end
+    if !is_trivia(node) && is_leaf
+        line = rpad(line, 40) * "✔"
+    end
+    if is_error(node)
+        line = rpad(line, 41) * "✘"
+    end
+    if is_leaf && !isnothing(str)
+        line = string(rpad(line, 43), ' ', repr(str[pos:prevind(str, pos + span(node))]))
+    end
+    line = line * "\n"
+    if is_error(node)
+        printstyled(io, line, color=:light_red)
+    else
+        print(io, line)
+    end
+    if !is_leaf
+        new_indent = indent * "  "
+        p = pos
+        for x in children(node)
+            _show_green_node(io, x, new_indent, p, str)
+            p += x.span
+        end
+    end
+end
+
+function Base.show(io::IO, node::PlaceholderNode)
+    _show_green_node(io, node, "", 1, nothing)
+end
+
+function Base.show(io::IO, node::PlaceholderNode, str::AbstractString)
+    _show_green_node(io, node, "", 1, str)
+end
+
 
 
 # TODO: Re-evaluate simplifying the public API to not expose any streaming functionality.
 # TODO: Re-evaluate simplifying to not skip whitespace.
 # TODO: Re-evaluate simplifying to single function, rather than parseall, parsestmt, parseatom.
-function parseall(::Type{T}, text::AbstractString, index::Int = 1) where {T}
+function parseall(::Type{T}, text::AbstractString, index::Int=1) where {T}
     stream = ParseStream(text, index)
 
     # TODO: Remove this!!!
@@ -508,12 +558,11 @@ function parseall(::Type{T}, text::AbstractString, index::Int = 1) where {T}
     while peek(stream) != K"EndMarker"
         bump(stream)
     end
-
     # TODO: Actually parse!
     # _parse!(stream)
-    if peek(stream) != K"EndMarker"
-        emit_diagnostic(stream, error="unexpected text after parsing input")
-    end
+    # if peek(stream) != K"EndMarker"
+    #     emit_diagnostic(stream, "unexpected text after parsing input")
+    # end
     tree = build_tree(T, stream; wrap_toplevel_as_kind=K"toplevel")
     tree, last_byte(stream) + 1
 end
