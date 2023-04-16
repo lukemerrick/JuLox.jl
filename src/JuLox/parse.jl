@@ -462,34 +462,35 @@ end
 # function _parse!()
 
 function parse_expression(ps::ParseStream)
-    # parse_equality(ps)
-    # TODO: Replace with full hierarchy of calls.
-    parse_plus(ps)
+    parse_equality(ps)
+    return nothing
 end
 
-# function parse_equality(ps::ParseStream)
-#     parse_comparison(ps::ParseStream)
-
-#     k_left, k_op, k_right = peek(ps), peek(ps, 2), peek(ps, 3)
-#     if k_op ∈ KSet"!= =="
-
-
-# end
-
-function parse_plus(ps::ParseStream)
+function parse_infix_operator(ps::ParseStream, op_kset::Tuple{Vararg{Kind}}, left_right_parse_fn::Function)
     mark = position(ps)
 
-    # Handle the initial left operand.
-    parse_unary(ps)
+    # Parse the left operand.
+    left_right_parse_fn(ps)
 
-    # Handle the next operation. If there are more operations later, we'll repeat, since the
-    # completed operation becomes the left operand.
-    while peek(ps) == K"+"
+    # Parse zero or more operators matching `op_kset``.
+    # The entire expression built up becomes the left operand of the next operation parsed.
+    while (k = peek(ps)) ∈ op_kset
+        # Consume the operator.
         bump(ps)
-        parse_unary(ps)
-        emit(ps, mark, K"+")
+
+        # Parse the right operatnd.
+        left_right_parse_fn(ps)
+
+        # Emit the operand covering from start of left through end of right.
+        emit(ps, mark, k)
     end
+    return nothing
 end
+
+parse_equality(ps::ParseStream) = parse_infix_operator(ps, KSet"!= ==", parse_comparison)
+parse_comparison(ps::ParseStream) = parse_infix_operator(ps, KSet"> >= < <=", parse_term)
+parse_term(ps::ParseStream) = parse_infix_operator(ps, KSet"+ -", parse_factor)
+parse_factor(ps::ParseStream) = parse_infix_operator(ps, KSet"* /", parse_unary)
 
 function parse_unary(ps::ParseStream)
     if peek(ps) ∈ KSet"! -"
@@ -527,7 +528,6 @@ function parse_primary(ps::ParseStream)
         error("Parsing primary but didn't get an expected token.")
     end
 end
-
 
 
 #-------------------------------------------------------------------------------
