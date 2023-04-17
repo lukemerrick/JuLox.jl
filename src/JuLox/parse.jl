@@ -286,6 +286,20 @@ function bump_trivia(stream::ParseStream; error=nothing)
     return position(stream)
 end
 
+"""
+Bump an invisible zero-width token into the output. This is useful for errors.
+"""
+function bump_invisible(stream::ParseStream, kind; error=nothing)
+    b = _next_byte(stream)
+    insert!(stream.tokens, stream.finished_token_index, RawToken(kind, b, b-1))
+    if !isnothing(error)
+        emit_diagnostic(stream, b:b-1, error)
+    end
+    stream.peek_count = 0
+    return position(stream)
+end
+
+
 # Get position of last item emitted into the output stream
 function Base.position(stream::ParseStream)
     ParseStreamPosition(stream.finished_token_index, lastindex(stream.ranges))
@@ -504,6 +518,7 @@ function parse_unary(ps::ParseStream)
 end
 
 function parse_primary(ps::ParseStream)
+    is_error(peek(ps)) && bump(ps)  # Pass through errors.
     mark = position(ps)
     k = peek(ps)
     if k ∈ KSet"false true nil Number String"
@@ -522,10 +537,8 @@ function parse_primary(ps::ParseStream)
         if peek(ps) == K")"
             bump(ps)
         else
-            error("We need a closing parenthesis around this expression!")
+            bump_invisible(ps, K"error"; error="Expect ')' after expression.")
         end
-    else
-        error("Parsing primary but didn't get an expected token.")
     end
 end
 

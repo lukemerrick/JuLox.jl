@@ -258,9 +258,9 @@ is_literal(k) = is_literal(kind(k))
 # is_syntax_kind(x)      = K"BEGIN_SYNTAX_KINDS" < kind(x) < K"END_SYNTAX_KINDS"
 
 """
-Return true if `x` has whitespace or comment kind
+Return true if `x` has whitespace, comment, or quote mark kind.
 """
 function is_whitespace(x)
     k = kind(x)
-    return k == K"Whitespace" || k == K"NewlineWs" || k == K"Comment"
+    return k == K"Whitespace" || k == K"NewlineWs" || k == K"Comment" || k == K"\""
 end
