@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox: @K_str, kind, Tokenize, Parse
+using Fractal.JuLox: @K_str, kind, Tokenize, Parse, Interpret
 
 # TODO: Restrict typing of `result`.
 struct RunResult
@@ -35,18 +35,6 @@ function run_just_tokenize(line::String)
     result = nothing
     exit_code = 0
     # TODO: Adapt error reporting to new ParseStream approach.
-    # error = nothing
-    # try
-    #     # For now, the result is the tokens.
-    #     result = collect(Tokenize.tokenize(line))
-    # catch e
-    #     !isa(e, Union{SyntaxError}) && rethrow()
-    #     error = e
-    # end
-    # if !isnothing(error)
-    #     report_error(error)
-    #     exit_code = 65
-    # elseif !isnothing(result)
     result = collect(Tokenize.tokenize(line))
     if !isnothing(result)
         # For now, just print the tokens.
@@ -69,8 +57,6 @@ end
 
 function run_parse(line::String)
     exit_code = 0
-    # TODO: Change parseall or wrap it with a different API that returns
-    # the diagnostics.
     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
     println("Green Tree")
     show(stdout, tree.green_node, line)
@@ -86,7 +72,10 @@ function run(line::String)
     println("Tokens")
     run_just_tokenize(line)
     println()
-    return run_parse(line)
+    run_parse(line)
+    println()
+    tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
+    println(Interpret.evaluate(tree))
 end
 
 """Create a super lightweight REPL experience."""
