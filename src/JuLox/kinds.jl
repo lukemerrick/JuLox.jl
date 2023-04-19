@@ -79,6 +79,7 @@ const _kind_names =
     "BEGIN_SYNTAX_KINDS"
         "block"
         "call"
+        "grouping"
         "infix_operation"
         "unary"
         "comparison"

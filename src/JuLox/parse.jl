@@ -539,7 +539,7 @@ function SyntaxNode(source::String, raw::GreenNode, position::Int)
     if !haschildren(raw)
         # Leaf node.
         k = kind(raw)
-        val_range = position:position + span(raw) - 1
+        val_range = position:position+span(raw)-1
         val_str = view(source, val_range)
         val = if k == K"Number"
             parse(Float64, val_str)
@@ -588,11 +588,11 @@ function _show_syntax_node(io, node::SyntaxNode, indent)
     pos = node.position
     posstr = "$(lpad(pos, 6)):$(rpad(pos+span(green_node)-1, 6)) │"
     nodestr = haschildren(node) ? "[$(kind(node))]" :
-        isnothing(val) ? kind(node) : repr(val)
+              isnothing(val) ? kind(node) : repr(val)
     treestr = string(indent, nodestr)
     println(io, posstr, treestr)
     if haschildren(node)
-        new_indent = indent*"  "
+        new_indent = indent * "  "
         for n in children(node)
             _show_syntax_node(io, n, new_indent)
         end
@@ -664,13 +664,15 @@ function parse_primary(ps::ParseStream)
 
         # Parse right parenthesis.
         # TODO: Error handling.
-        mark = position(ps)
         if peek(ps) == K")"
             bump(ps)
         else
             b = last_byte(ps)
             emit_diagnostic(ps.diagnostics, b:b-1, "Expect ')' after expression.")
         end
+
+        # Emit a grouping inner node.
+        emit(ps, mark, K"grouping")
     end
 end
 
