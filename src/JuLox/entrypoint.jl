@@ -81,8 +81,13 @@ function run_parse(line::String)
     return exit_code
 end
 
-run(line::String) = run_parse(line)
 
+function run(line::String)
+    println("Tokens")
+    run_just_tokenize(line)
+    println()
+    return run_parse(line)
+end
 
 """Create a super lightweight REPL experience."""
 function run_prompt()::Integer

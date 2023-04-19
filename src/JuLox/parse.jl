@@ -530,6 +530,7 @@ end
 
 struct SyntaxNode
     green_node::GreenNode
+    position::Int
     args::Union{Tuple{},Vector{SyntaxNode}}
     value::Any
 end
@@ -550,17 +551,19 @@ function SyntaxNode(source::String, raw::GreenNode, position::Int)
             # Operations, true/false/nil, etc. which function just on type.
             nothing
         end
-        return SyntaxNode(raw, (), val)
+        return SyntaxNode(raw, position, (), val)
     else
         # Inner node.
         cs = SyntaxNode[]
+        pos = position
         for rawchild in children(raw)
             if !is_trivia(rawchild)
                 # Recurse.
-                push!(cs, SyntaxNode(source, rawchild, position))
+                push!(cs, SyntaxNode(source, rawchild, pos))
             end
+            pos += span(rawchild)
         end
-        node = SyntaxNode(raw, cs, position)
+        node = SyntaxNode(raw, position, cs, position)
         return node
     end
 end
@@ -579,9 +582,10 @@ function build_tree(::Type{SyntaxNode}, stream::ParseStream;
     return SyntaxNode(source, green_tree, start_pos)
 end
 
-function _show_syntax_node(io, node::SyntaxNode, indent, pos)
+function _show_syntax_node(io, node::SyntaxNode, indent)
     green_node = node.green_node
     val = node.value
+    pos = node.position
     posstr = "$(lpad(pos, 6)):$(rpad(pos+span(green_node)-1, 6)) │"
     nodestr = haschildren(node) ? "[$(kind(node))]" :
         isnothing(val) ? kind(node) : repr(val)
@@ -589,16 +593,14 @@ function _show_syntax_node(io, node::SyntaxNode, indent, pos)
     println(io, posstr, treestr)
     if haschildren(node)
         new_indent = indent*"  "
-        p = pos
         for n in children(node)
-            _show_syntax_node(io, n, new_indent, p)
-            p += n.green_node.span
+            _show_syntax_node(io, n, new_indent)
         end
     end
 end
 
 
-Base.show(io::IO, node::SyntaxNode) = _show_syntax_node(io, node, "", 1)
+Base.show(io::IO, node::SyntaxNode) = _show_syntax_node(io, node, "")
 
 
 #-------------------------------------------------------------------------------

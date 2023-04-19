@@ -358,6 +358,7 @@ function lex_digit(l::Lexer)
     # Handle the possibility of a fractional part.
     has_fraction = peekchar(l) == '.' && isdigit(peekchar2(l))
     if has_fraction
+        readchar(l)
         while isdigit(peekchar(l))
             readchar(l)
         end
