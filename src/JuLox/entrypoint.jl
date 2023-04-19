@@ -69,8 +69,14 @@ end
 
 function run_parse(line::String)
     exit_code = 0
-    tree, next_byte = Parse.parseall(Parse.PlaceholderNode, line)
-    show(stdout, tree, line)
+    # TODO: Change parseall or wrap it with a different API that returns
+    # the diagnostics.
+    tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
+    println("Green Tree")
+    show(stdout, tree.green_node, line)
+    println()
+    println("Syntax Tree")
+    show(stdout, tree)
     println("Next byte: $(next_byte)")
     return exit_code
 end
@@ -122,7 +128,14 @@ function run_prompt()::Integer
                 rethrow()
             end
         end
-        line != "\n" && run(line)
+        if line != "\n"
+            try
+                run(line)
+            catch e
+                !isa(e, Parse.ParseError) && rethrow()
+                showerror(stdout, e)
+            end
+        end
         println()  # Add an extra newline after the result.
     end
     return exit_code

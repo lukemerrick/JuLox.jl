@@ -3,7 +3,7 @@
 module Parse
 using Fractal.JuLox.Tokenize: Tokenize, RawToken, kind, startbyte, endbyte
 using Fractal.JuLox: Kind, @K_str, @KSet_str, is_whitespace, is_error
-import Fractal.JuLox: kind
+import Fractal.JuLox: kind, _token_error_descriptions
 
 #-------------------------------------------------------------------------------
 # The ParseStream struct and related structs.
@@ -22,7 +22,7 @@ Base.range(d::Diagnostic) = first_byte(d):last_byte(d)
 function show_diagnostic(io::IO, diagnostic::Diagnostic, source::String)
     # Figure out the location of the issue.
     lines = split(source[1:first_byte(diagnostic)], '\n')
-    linecol = "$(length(lines)):$(length(lines[end]))"
+    linecol = "[line $(length(lines)), column $(length(lines[end]))]"
 
     # Print the error.
     println(io, "# Error @ $linecol - $(message(diagnostic))")
@@ -286,20 +286,6 @@ function bump_trivia(stream::ParseStream; error=nothing)
     return position(stream)
 end
 
-"""
-Bump an invisible zero-width token into the output. This is useful for errors.
-"""
-function bump_invisible(stream::ParseStream, kind; error=nothing)
-    b = _next_byte(stream)
-    insert!(stream.tokens, stream.finished_token_index, RawToken(kind, b, b-1))
-    if !isnothing(error)
-        emit_diagnostic(stream, b:b-1, error)
-    end
-    stream.peek_count = 0
-    return position(stream)
-end
-
-
 # Get position of last item emitted into the output stream
 function Base.position(stream::ParseStream)
     ParseStreamPosition(stream.finished_token_index, lastindex(stream.ranges))
@@ -395,23 +381,20 @@ The tree here is constructed depth-first, but it would also be possible to use
 a bottom-up tree builder interface similar to rust-analyzer. (In that case we'd
 traverse the list of ranges backward rather than forward.)
 """
-function build_tree(::Type{NodeType}, stream::ParseStream;
-    wrap_toplevel_as_kind=nothing) where {NodeType}
+function build_tree(
+    ::Type{NodeType}, stream::ParseStream;
+    wrap_toplevel_as_kind::Union{Nothing,Kind}=nothing
+) where {NodeType}
     stack = Vector{NamedTuple{(:first_token, :node),Tuple{Int,NodeType}}}()
-
     tokens = stream.tokens
     ranges = stream.ranges
     i = firstindex(tokens)
     j = firstindex(ranges)
     while true
         last_token = j <= lastindex(ranges) ? ranges[j].last_token : stream.finished_token_index
-        # Process tokens to nodes for all tokens used by the next internal node
+        # Process tokens to nodes for all tokens used by the next internal node.
         while i <= last_token
             t = tokens[i]
-            if kind(t) == K"TOMBSTONE"
-                i += 1
-                continue # Ignore removed tokens
-            end
             node = NodeType(kind(t), token_span(t))
             push!(stack, (first_token=i, node=node))
             i += 1
@@ -419,17 +402,13 @@ function build_tree(::Type{NodeType}, stream::ParseStream;
         if j > lastindex(ranges)
             break
         end
-        # Process internal nodes which end at the current position
+        # Process internal nodes which end at the current position.
         while j <= lastindex(ranges)
             r = ranges[j]
             if r.last_token != last_token
                 break
             end
-            if kind(r) == K"TOMBSTONE"
-                j += 1
-                continue
-            end
-            # Collect children from the stack for this internal node
+            # Collect children from the stack for this internal node.
             k = length(stack) + 1
             while k > 1 && r.first_token <= stack[k-1].first_token
                 k -= 1
@@ -468,129 +447,47 @@ function sourcetext(stream::ParseStream)
 end
 
 
-
-#-------------------------------------------------------------------------------
-# Parser.
-
-
-# function _parse!()
-
-function parse_expression(ps::ParseStream)
-    parse_equality(ps)
-    return nothing
-end
-
-function parse_infix_operator(ps::ParseStream, op_kset::Tuple{Vararg{Kind}}, left_right_parse_fn::Function)
-    mark = position(ps)
-
-    # Parse the left operand.
-    left_right_parse_fn(ps)
-
-    # Parse zero or more operators matching `op_kset``.
-    # The entire expression built up becomes the left operand of the next operation parsed.
-    while (k = peek(ps)) ∈ op_kset
-        # Consume the operator.
-        bump(ps)
-
-        # Parse the right operatnd.
-        left_right_parse_fn(ps)
-
-        # Emit the operand covering from start of left through end of right.
-        emit(ps, mark, k)
-    end
-    return nothing
-end
-
-parse_equality(ps::ParseStream) = parse_infix_operator(ps, KSet"!= ==", parse_comparison)
-parse_comparison(ps::ParseStream) = parse_infix_operator(ps, KSet"> >= < <=", parse_term)
-parse_term(ps::ParseStream) = parse_infix_operator(ps, KSet"+ -", parse_factor)
-parse_factor(ps::ParseStream) = parse_infix_operator(ps, KSet"* /", parse_unary)
-
-function parse_unary(ps::ParseStream)
-    if peek(ps) ∈ KSet"! -"
-        mark = position(ps)
-        bump(ps)
-        parse_primary(ps)
-        emit(ps, mark, K"unary")
-    else
-        parse_primary(ps)
-    end
-end
-
-function parse_primary(ps::ParseStream)
-    is_error(peek(ps)) && bump(ps)  # Pass through errors.
-    mark = position(ps)
-    k = peek(ps)
-    if k ∈ KSet"false true nil Number String"
-        bump(ps)
-        emit(ps, mark, k)
-    elseif k == K"("
-        # Consume the left parenthesis.
-        bump(ps)
-
-        # Handle parenthesized expression.
-        parse_expression(ps)
-
-        # Parse right parenthesis.
-        # TODO: Error handling.
-        mark = position(ps)
-        if peek(ps) == K")"
-            bump(ps)
-        else
-            bump_invisible(ps, K"error"; error="Expect ')' after expression.")
+function validate_tokens(stream::ParseStream)
+    for t in stream.tokens
+        k = kind(t)
+        if is_error(k) && k != K"error"
+            # Emit messages for non-generic token errors
+            # TODO: Are these only tokenization errors? Should we handle this elsewhere?
+            diagnostic_range = startbyte(t):endbyte(t)
+            emit_diagnostic(stream, diagnostic_range, _token_error_descriptions[k])
         end
     end
+    sort!(stream.diagnostics, by=first_byte)
+    return nothing
 end
 
-
-#-------------------------------------------------------------------------------
-# Main (public) API.
-
-struct ParseError <: Exception
-    source::String
-    diagnostics::Vector{Diagnostic}
-end
-
-function ParseError(stream::ParseStream)
-    ParseError(sourcetext(stream), stream.diagnostics)
-end
-
-function Base.showerror(io::IO, err::ParseError)
-    println(io, "ParseError:")
-    show_diagnostics(io, err.diagnostics, err.source)
-end
-
-Base.showerror(io::IO, err::ParseError, bt; backtrace=false) = showerror(io, err)
-Base.display_error(io::IO, err::ParseError, bt) = showerror(io, err, bt)
-
-# TODO: Move towards having a GreenTree and a SyntaxTree.
-struct PlaceholderNode
+struct GreenNode
     kind::Kind
     span::Int
-    args::Union{Tuple{},Vector{PlaceholderNode}}
+    args::Union{Tuple{},Vector{GreenNode}}
 end
 
-function PlaceholderNode(k::Kind, span::Integer)
-    return PlaceholderNode(k, span, ())
+function GreenNode(k::Kind, span::Integer)
+    return GreenNode(k, span, ())
 end
 
-function PlaceholderNode(k::Kind, args::PlaceholderNode...)
-    children = collect(PlaceholderNode, args)
+function GreenNode(k::Kind, args::GreenNode...)
+    children = collect(GreenNode, args)
     span = isempty(children) ? 0 : sum(x.span for x in children)
-    return PlaceholderNode(k, span, children)
+    return GreenNode(k, span, children)
 end
 
-kind(node::PlaceholderNode) = node.kind
-span(node::PlaceholderNode) = node.span
-children(node::PlaceholderNode) = node.args
-haschildren(node::PlaceholderNode) = !(node.args isa Tuple{})
-function is_trivia(node::PlaceholderNode)
+kind(node::GreenNode) = node.kind
+span(node::GreenNode) = node.span
+children(node::GreenNode) = node.args
+haschildren(node::GreenNode) = !(node.args isa Tuple{})
+function is_trivia(node::GreenNode)
     return is_whitespace(kind(node)) || kind(node) ∈ KSet"None EndMarker ( ) { }"
 end
 
 # Pretty printing
-Base.summary(io::IO, node::PlaceholderNode) = show(io, kind(node))
-function _show_green_node(io, node, indent, pos, str)
+Base.summary(io::IO, node::GreenNode) = show(io, kind(node))
+function _show_node(io, node, indent, pos, str)
     posstr = "$(lpad(pos, 6)):$(rpad(pos+span(node)-1, 6)) │"
     is_leaf = !haschildren(node)
     if is_leaf
@@ -617,21 +514,183 @@ function _show_green_node(io, node, indent, pos, str)
         new_indent = indent * "  "
         p = pos
         for x in children(node)
-            _show_green_node(io, x, new_indent, p, str)
+            _show_node(io, x, new_indent, p, str)
             p += x.span
         end
     end
 end
 
-function Base.show(io::IO, node::PlaceholderNode)
-    _show_green_node(io, node, "", 1, nothing)
+function Base.show(io::IO, node::GreenNode)
+    _show_node(io, node, "", 1, nothing)
 end
 
-function Base.show(io::IO, node::PlaceholderNode, str::AbstractString)
-    _show_green_node(io, node, "", 1, str)
+function Base.show(io::IO, node::GreenNode, str::AbstractString)
+    _show_node(io, node, "", 1, str)
+end
+
+struct SyntaxNode
+    green_node::GreenNode
+    args::Union{Tuple{},Vector{SyntaxNode}}
+    value::Any
+end
+
+function SyntaxNode(source::String, raw::GreenNode, position::Int)
+    if !haschildren(raw)
+        # Leaf node.
+        k = kind(raw)
+        val_range = position:position + span(raw) - 1
+        val_str = view(source, val_range)
+        val = if k == K"Number"
+            parse(Float64, val_str)
+        elseif k == K"String"
+            val_str
+        elseif k == K"Identifier"
+            Symbol(val_str)
+        else
+            # Operations, true/false/nil, etc. which function just on type.
+            nothing
+        end
+        return SyntaxNode(raw, (), val)
+    else
+        # Inner node.
+        cs = SyntaxNode[]
+        for rawchild in children(raw)
+            if !is_trivia(rawchild)
+                # Recurse.
+                push!(cs, SyntaxNode(source, rawchild, position))
+            end
+        end
+        node = SyntaxNode(raw, cs, position)
+        return node
+    end
+end
+
+children(node::SyntaxNode) = node.args
+haschildren(node::SyntaxNode) = !(children(node) isa Tuple{})
+kind(node::SyntaxNode) = kind(node.green_node)
+
+function build_tree(::Type{SyntaxNode}, stream::ParseStream;
+    wrap_toplevel_as_kind::Union{Nothing,Kind}=nothing
+)
+    green_tree = build_tree(GreenNode, stream; wrap_toplevel_as_kind=wrap_toplevel_as_kind)
+    # TODO: Consider cleaning this up to avoid a copy!
+    source = String(stream.text_buf)
+    start_pos = startbyte(first(stream.tokens))
+    return SyntaxNode(source, green_tree, start_pos)
+end
+
+function _show_syntax_node(io, node::SyntaxNode, indent, pos)
+    green_node = node.green_node
+    val = node.value
+    posstr = "$(lpad(pos, 6)):$(rpad(pos+span(green_node)-1, 6)) │"
+    nodestr = haschildren(node) ? "[$(kind(node))]" :
+        isnothing(val) ? kind(node) : repr(val)
+    treestr = string(indent, nodestr)
+    println(io, posstr, treestr)
+    if haschildren(node)
+        new_indent = indent*"  "
+        p = pos
+        for n in children(node)
+            _show_syntax_node(io, n, new_indent, p)
+            p += n.green_node.span
+        end
+    end
 end
 
 
+Base.show(io::IO, node::SyntaxNode) = _show_syntax_node(io, node, "", 1)
+
+
+#-------------------------------------------------------------------------------
+# Parser.
+
+function parse_expression(ps::ParseStream)
+    parse_equality(ps)
+    return nothing
+end
+
+function parse_infix_operator(ps::ParseStream, op_kset::Tuple{Vararg{Kind}}, left_right_parse_fn::Function)
+    mark = position(ps)
+
+    # Parse the left operand.
+    left_right_parse_fn(ps)
+
+    # Parse zero or more operators matching `op_kset``.
+    # The entire expression built up becomes the left operand of the next operation parsed.
+    while (k = peek(ps)) ∈ op_kset
+        # Consume the operator.
+        bump(ps)
+
+        # Parse the right operatnd.
+        left_right_parse_fn(ps)
+
+        # Emit the operand covering from start of left through end of right.
+        emit(ps, mark, K"infix_operation")
+    end
+    return nothing
+end
+
+parse_equality(ps::ParseStream) = parse_infix_operator(ps, KSet"!= ==", parse_comparison)
+parse_comparison(ps::ParseStream) = parse_infix_operator(ps, KSet"> >= < <=", parse_term)
+parse_term(ps::ParseStream) = parse_infix_operator(ps, KSet"+ -", parse_factor)
+parse_factor(ps::ParseStream) = parse_infix_operator(ps, KSet"* /", parse_unary)
+
+function parse_unary(ps::ParseStream)
+    if peek(ps) ∈ KSet"! -"
+        mark = position(ps)
+        bump(ps)
+        parse_primary(ps)
+        emit(ps, mark, K"unary")
+    else
+        parse_primary(ps)
+    end
+end
+
+function parse_primary(ps::ParseStream)
+    is_error(peek(ps)) && bump(ps)  # Pass through errors.
+    mark = position(ps)
+    k = peek(ps)
+    if k ∈ KSet"false true nil Number String"
+        bump(ps)
+        # We don't actually have to emit a range for a single token item.
+    elseif k == K"("
+        # Consume the left parenthesis.
+        bump(ps)
+
+        # Handle parenthesized expression.
+        parse_expression(ps)
+
+        # Parse right parenthesis.
+        # TODO: Error handling.
+        mark = position(ps)
+        if peek(ps) == K")"
+            bump(ps)
+        else
+            b = last_byte(ps)
+            emit_diagnostic(ps.diagnostics, b:b-1, "Expect ')' after expression.")
+        end
+    end
+end
+
+#-------------------------------------------------------------------------------
+# Main (public) API.
+
+struct ParseError <: Exception
+    source::String
+    diagnostics::Vector{Diagnostic}
+end
+
+function ParseError(stream::ParseStream)
+    ParseError(sourcetext(stream), stream.diagnostics)
+end
+
+function Base.showerror(io::IO, err::ParseError)
+    println(io, "ParseError:")
+    show_diagnostics(io, err.diagnostics, err.source)
+end
+
+Base.showerror(io::IO, err::ParseError, bt; backtrace=false) = showerror(io, err)
+Base.display_error(io::IO, err::ParseError, bt) = showerror(io, err, bt)
 
 # TODO: Re-evaluate simplifying the public API to not expose any streaming functionality.
 # TODO: Re-evaluate simplifying to not skip whitespace.
@@ -639,12 +698,15 @@ end
 function parseall(::Type{T}, text::AbstractString, index::Int=1) where {T}
     stream = ParseStream(text, index)
     parse_expression(stream)
+    validate_tokens(stream)
     if peek(stream) != K"EndMarker"
-        emit_diagnostic(stream, "unexpected text after parsing input")
+        emit_diagnostic(stream, "Unexpected text after parsing input")
     end
     tree = build_tree(T, stream; wrap_toplevel_as_kind=K"toplevel")
-    tree, last_byte(stream) + 1
+    if !isempty(stream.diagnostics)
+        throw(ParseError(stream))
+    end
+    return tree, last_byte(stream) + 1
 end
-
 
 end  # end module Parse

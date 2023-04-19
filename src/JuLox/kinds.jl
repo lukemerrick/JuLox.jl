@@ -79,8 +79,7 @@ const _kind_names =
     "BEGIN_SYNTAX_KINDS"
         "block"
         "call"
-        "factor"
-        "term"
+        "infix_operation"
         "unary"
         "comparison"
         "parameters"     # the list after ; in f(; a=1)
