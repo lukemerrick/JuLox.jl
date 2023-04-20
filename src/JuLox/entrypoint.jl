@@ -75,7 +75,10 @@ function run(line::String)
     run_parse(line)
     println()
     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-    println(Interpret.evaluate(tree))
+    output, had_error = Interpret.interpret(tree, line)
+    println(output)
+    exit_code = had_error ? 70 : 0
+    return exit_code
 end
 
 """Create a super lightweight REPL experience."""
