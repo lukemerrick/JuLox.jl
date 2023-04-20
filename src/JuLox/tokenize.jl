@@ -324,8 +324,8 @@ end
 # One-or-two character tokens.
 lex_exclaim(l::Lexer) = accept(l, '=') ? emit(l, K"!=") : emit(l, K"!")
 lex_equal(l::Lexer) = accept(l, '=') ? emit(l, K"==") : emit(l, K"=")
-lex_less(l::Lexer) = accept(l, '=') ? emit(l, K"<=") : emit(l, K"=")
-lex_greater(l::Lexer) = accept(l, '=') ? emit(l, K">=") : emit(l, K"=")
+lex_less(l::Lexer) = accept(l, '=') ? emit(l, K"<=") : emit(l, K"<")
+lex_greater(l::Lexer) = accept(l, '=') ? emit(l, K">=") : emit(l, K">")
 
 # "//" comment or "/" forward slash.
 function lex_forwardslash(l::Lexer)
