@@ -82,10 +82,12 @@ const _kind_names =
         "grouping"
         "infix_operation"
         "unary"
-        "comparison"
-        "parameters"     # the list after ; in f(; a=1)
+        "BEGIN_STATEMENTS"
+            "print_statement"
+            "expression_statement"
+            "var_statement"
+        "END_STATEMENTS"
         "toplevel"
-        "parens"
     "END_SYNTAX_KINDS"
 
     "TOMBSTONE" # Empty placeholder for kind to be filled later
@@ -231,12 +233,13 @@ _token_error_descriptions = Dict{Kind, String}(
 is_error(k::Kind) = K"BEGIN_ERRORS" < k < K"END_ERRORS"
 is_keyword(k::Kind) = K"BEGIN_KEYWORDS" < k < K"END_KEYWORDS"
 is_literal(k::Kind) = K"BEGIN_LITERAL" < k < K"END_LITERAL"
+is_statement(k::Kind) = K"BEGIN_STATEMENTS" < k < K"END_STATEMENTS"
 
 
 is_error(k) = is_error(kind(k))
 is_keyword(k) = is_keyword(kind(k))
 is_literal(k) = is_literal(kind(k))
-
+is_statement(k) = is_statement(kind(k))
 
 
 # TODO: Consider using Kinds for handling operators.

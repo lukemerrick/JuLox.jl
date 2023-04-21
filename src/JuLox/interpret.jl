@@ -1,5 +1,5 @@
 module Interpret
-using Fractal.JuLox: Parse, Kind, @K_str, @KSet_str, kind, is_literal
+using Fractal.JuLox: Parse, Kind, @K_str, @KSet_str, kind, is_literal, is_statement
 
 struct RuntimeError <: Exception
     msg::String
@@ -8,16 +8,16 @@ end
 
 function interpret(node::Parse.SyntaxNode, source::String)
     try
-        output = stringify(evaluate(node))
+        evaluate_statement(node)
         had_error = false
-        return output, had_error
+        return had_error
     catch e
         !isa(e, RuntimeError) && rethrow()
         lines = split(source[1:e.node.position], '\n')
         linecol = "[line $(length(lines)), column $(length(lines[end]))]"
-        output = "Error @ $linecol - $(e.msg)"
+        println("Error @ $linecol - $(e.msg)")
         had_error = true
-        return output, had_error
+        return had_error
     end
 end
 
@@ -33,7 +33,34 @@ function stringify(value)
     return string(value)
 end
 
-function evaluate(node::Parse.SyntaxNode)
+function evaluate_statement(node::Parse.SyntaxNode)
+    @assert is_statement(node)
+    if kind(node) == K"expression_statement"
+        return evaluate_expression_statement(node)
+    elseif kind(node) == K"print_statement"
+        return evaluate_print_statement(node)
+    end
+
+    # Unreachable.
+    return nothing
+end
+
+function evaluate_expression_statement(node::Parse.SyntaxNode)
+    c = Parse.children(node)
+    @assert length(c) == 1
+    evaluate_expression(c[1])
+    return nothing
+end
+
+function evaluate_print_statement(node::Parse.SyntaxNode)
+    c = Parse.children(node)
+    @assert length(c) == 1
+    println(stringify(evaluate_expression(c[1])))
+    return nothing
+end
+
+
+function evaluate_expression(node::Parse.SyntaxNode)
     k = kind(node)
     is_literal(k) && return evaluate_literal(node)
     k == K"grouping" && return evaluate_grouping(node)
@@ -42,7 +69,6 @@ function evaluate(node::Parse.SyntaxNode)
     return nothing
 end
 
-
 function evaluate_literal(node::Parse.SyntaxNode)
     return node.value
 end
@@ -50,7 +76,7 @@ end
 function evaluate_grouping(node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 1
-    return evaluate(c[1])
+    return evaluate_expression(c[1])
 end
 
 function evaluate_unary(node::Parse.SyntaxNode)
@@ -58,7 +84,7 @@ function evaluate_unary(node::Parse.SyntaxNode)
     @assert length(c) == 2
     operator, operand = c
     operator_kind = kind(operator)
-    operand_value = evaluate(operand)
+    operand_value = evaluate_expression(operand)
     if operator_kind == K"-"
         raise_on_non_number_in_operation(node, operand_value)
         return -operand_value
@@ -75,8 +101,8 @@ function evaluate_infix_operation(node::Parse.SyntaxNode)
     @assert length(c) == 3
     left_node, operator_node, right_node = c
     operator_kind = kind(operator_node)
-    left_value = evaluate(left_node)
-    right_value = evaluate(right_node)
+    left_value = evaluate_expression(left_node)
+    right_value = evaluate_expression(right_node)
     if operator_kind == K"-"
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value - right_value

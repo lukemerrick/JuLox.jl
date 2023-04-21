@@ -63,7 +63,7 @@ function run_parse(line::String)
     println()
     println("Syntax Tree")
     show(stdout, tree)
-    println("Next byte: $(next_byte)")
+    # println("Next byte: $(next_byte)")
     return exit_code
 end
 
@@ -75,8 +75,8 @@ function run(line::String)
     run_parse(line)
     println()
     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-    output, had_error = Interpret.interpret(tree, line)
-    println(output)
+    println("Interpreter")
+    had_error = Interpret.interpret(tree, line)
     exit_code = had_error ? 70 : 0
     return exit_code
 end

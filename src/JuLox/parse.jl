@@ -482,7 +482,7 @@ span(node::GreenNode) = node.span
 children(node::GreenNode) = node.args
 haschildren(node::GreenNode) = !(node.args isa Tuple{})
 function is_trivia(node::GreenNode)
-    return is_whitespace(kind(node)) || kind(node) ∈ KSet"None EndMarker ( ) { }"
+    return is_whitespace(kind(node)) || kind(node) ∈ KSet"None EndMarker ( ) { } print ;"
 end
 
 # Pretty printing
@@ -606,6 +606,27 @@ Base.show(io::IO, node::SyntaxNode) = _show_syntax_node(io, node, "")
 #-------------------------------------------------------------------------------
 # Parser.
 
+function consume(ps::ParseStream, expected::Kind)
+    if peek(ps) == expected
+        bump(ps)
+    else
+        b = last_byte(ps)
+        emit_diagnostic(ps.diagnostics, b:b-1, "Expected '$(convert(String, expected))'.")
+    end
+end
+
+function parse_statement(ps::ParseStream)
+    mark = position(ps)
+    statement_kind = K"expression_statement"
+    if peek(ps) == K"print"
+        bump(ps)
+        statement_kind = K"print_statement"
+    end
+    parse_expression(ps)
+    consume(ps, K";")
+    emit(ps, mark, statement_kind)
+end
+
 function parse_expression(ps::ParseStream)
     parse_equality(ps)
     return nothing
@@ -663,13 +684,7 @@ function parse_primary(ps::ParseStream)
         parse_expression(ps)
 
         # Parse right parenthesis.
-        # TODO: Error handling.
-        if peek(ps) == K")"
-            bump(ps)
-        else
-            b = last_byte(ps)
-            emit_diagnostic(ps.diagnostics, b:b-1, "Expect ')' after expression.")
-        end
+        consume(ps, K")")
 
         # Emit a grouping inner node.
         emit(ps, mark, K"grouping")
@@ -701,7 +716,7 @@ Base.display_error(io::IO, err::ParseError, bt) = showerror(io, err, bt)
 # TODO: Re-evaluate simplifying to single function, rather than parseall, parsestmt, parseatom.
 function parseall(::Type{T}, text::AbstractString, index::Int=1) where {T}
     stream = ParseStream(text, index)
-    parse_expression(stream)
+    parse_statement(stream)
     validate_tokens(stream)
     if peek(stream) != K"EndMarker"
         emit_diagnostic(stream, "Unexpected text after parsing input")
