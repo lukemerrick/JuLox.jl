@@ -68,7 +68,7 @@ function run_parse(line::String)
 end
 
 
-function run(line::String)
+function run(interpreter::Interpret.Interpreter, line::String)
     println("Tokens")
     run_just_tokenize(line)
     println()
@@ -76,7 +76,7 @@ function run(line::String)
     println()
     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
     println("Interpreter")
-    had_error = Interpret.interpret(tree, line)
+    had_error = Interpret.interpret(interpreter, tree, line)
     exit_code = had_error ? 70 : 0
     return exit_code
 end
@@ -100,6 +100,9 @@ function run_prompt()::Integer
         "To exit the interactive session, type CTRL-D." *
         "\n\n"
     )
+
+    # Initialize interpreter state.
+    interpreter = Interpret.Interpreter()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -127,7 +130,7 @@ function run_prompt()::Integer
         end
         if line != "\n"
             try
-                run(line)
+                run(interpreter, line)
             catch e
                 !isa(e, Parse.ParseError) && rethrow()
                 showerror(stdout, e)

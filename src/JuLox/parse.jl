@@ -481,8 +481,8 @@ kind(node::GreenNode) = node.kind
 span(node::GreenNode) = node.span
 children(node::GreenNode) = node.args
 haschildren(node::GreenNode) = !(node.args isa Tuple{})
-function is_trivia(node::GreenNode)
-    return is_whitespace(kind(node)) || kind(node) ∈ KSet"None EndMarker ( ) { } print ;"
+function is_ast_dropped_kind(node::GreenNode)
+    return is_whitespace(kind(node)) || kind(node) ∈ KSet"None EndMarker ( ) { } print ; = var"
 end
 
 # Pretty printing
@@ -494,9 +494,6 @@ function _show_node(io, node, indent, pos, str)
         line = string(posstr, indent, summary(node))
     else
         line = string(posstr, indent, '[', summary(node), ']')
-    end
-    if !is_trivia(node) && is_leaf
-        line = rpad(line, 40) * "✔"
     end
     if is_error(node)
         line = rpad(line, 41) * "✘"
@@ -557,7 +554,7 @@ function SyntaxNode(source::String, raw::GreenNode, position::Int)
         cs = SyntaxNode[]
         pos = position
         for rawchild in children(raw)
-            if !is_trivia(rawchild)
+            if !is_ast_dropped_kind(rawchild)
                 # Recurse.
                 push!(cs, SyntaxNode(source, rawchild, pos))
             end
@@ -613,6 +610,36 @@ function consume(ps::ParseStream, expected::Kind)
         b = last_byte(ps)
         emit_diagnostic(ps.diagnostics, b:b-1, "Expected '$(convert(String, expected))'.")
     end
+end
+
+function parse_declaration(ps::ParseStream)
+    try
+        if peek(ps) == K"var"
+            parse_var_declaration(ps)
+        else
+            parse_statement(ps)
+        end
+    catch e
+        !isa(e, RuntimeError) && rethrow()
+        # TODO: Support error recovery.
+        # synchronize(ps)
+        error("Parser error recovery not yet implemented.")
+    end
+end
+
+function parse_var_declaration(ps::ParseStream)
+    mark = position(ps)
+    bump(ps)  # K"var" token
+    consume(ps, K"Identifier")
+
+    # Handle initializer.
+    if peek(ps) == K"="
+        bump(ps)
+        parse_expression(ps)
+    end
+
+    consume(ps, K";")
+    emit(ps, mark, K"var_decl_statement")
 end
 
 function parse_statement(ps::ParseStream)
@@ -673,7 +700,7 @@ function parse_primary(ps::ParseStream)
     is_error(peek(ps)) && bump(ps)  # Pass through errors.
     mark = position(ps)
     k = peek(ps)
-    if k ∈ KSet"false true nil Number String"
+    if k ∈ KSet"false true nil Number String Identifier"
         bump(ps)
         # We don't actually have to emit a range for a single token item.
     elseif k == K"("
@@ -716,7 +743,7 @@ Base.display_error(io::IO, err::ParseError, bt) = showerror(io, err, bt)
 # TODO: Re-evaluate simplifying to single function, rather than parseall, parsestmt, parseatom.
 function parseall(::Type{T}, text::AbstractString, index::Int=1) where {T}
     stream = ParseStream(text, index)
-    parse_statement(stream)
+    parse_declaration(stream)
     validate_tokens(stream)
     if peek(stream) != K"EndMarker"
         emit_diagnostic(stream, "Unexpected text after parsing input")

@@ -6,6 +6,8 @@ const _kind_names =
 [
     "\""  # TODO: Reorder (maybe create delimeters section?)
 
+    "Identifier"
+
     "BEGIN_TRIVIA"
         "None"         # Placeholder; never emitted by lexer
         "EndMarker"    # EOF
@@ -50,7 +52,6 @@ const _kind_names =
     "BEGIN_LITERAL"
         "String"
         "Number"
-        "Identifier"
     "END_LITERAL"
 
     "BEGIN_KEYWORDS"
@@ -85,7 +86,7 @@ const _kind_names =
         "BEGIN_STATEMENTS"
             "print_statement"
             "expression_statement"
-            "var_statement"
+            "var_decl_statement"
         "END_STATEMENTS"
         "toplevel"
     "END_SYNTAX_KINDS"
