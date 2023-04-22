@@ -120,7 +120,7 @@ end
 function evaluate_grouping(interpreter::Interpreter, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 1
-    return evaluate_expression(interpeter, c[1])
+    return evaluate_expression(interpreter, c[1])
 end
 
 function evaluate_unary(interpreter::Interpreter, node::Parse.SyntaxNode)
@@ -128,9 +128,9 @@ function evaluate_unary(interpreter::Interpreter, node::Parse.SyntaxNode)
     @assert length(c) == 2
     operator, operand = c
     operator_kind = kind(operator)
-    operand_value = evaluate_expression(interpeter, operand)
+    operand_value = evaluate_expression(interpreter, operand)
     if operator_kind == K"-"
-        raise_on_non_number_in_operation(node, operand_value)
+        raise_on_non_number_in_operation(operator, operand_value)
         return -operand_value
     elseif operator_kind == K"!"
         return !is_truthy(operand_value)
