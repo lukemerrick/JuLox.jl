@@ -45,7 +45,7 @@ function run_just_tokenize(line::String)
             print(rpad(kind(t), 25, " "))
             if kind(t) != K"EndMarker"
                 text = line[Tokenize.startbyte(t): Tokenize.endbyte(t)]
-                print(rpad("\"$(text)\"", 20, " "))
+                print(rpad("$(repr(text))", 20, " "))
             end
             println()
         end
@@ -142,7 +142,8 @@ function run_prompt()::Integer
 end
 
 function run_file(filepath::String)::Integer
-    exit_code = read(filepath, String) |> run
+    interpreter = Interpret.Interpreter()
+    exit_code = run(interpreter, read(filepath, String))
     return exit_code
 end
 end  # module
