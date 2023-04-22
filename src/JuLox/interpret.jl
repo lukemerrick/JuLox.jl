@@ -35,7 +35,7 @@ end
 
 function interpret(interpreter::Interpreter, node::Parse.SyntaxNode, source::String)
     try
-        evaluate_statement(interpreter, node)
+        evaluate_toplevel(interpreter, node)
         had_error = false
         return had_error
     catch e
@@ -58,6 +58,14 @@ function stringify(value)
         return text
     end
     return string(value)
+end
+
+function evaluate_toplevel(interpreter::Interpreter, node::Parse.SyntaxNode)
+    @assert kind(node) == K"toplevel"
+    for statement in Parse.children(node)
+        evaluate_statement(interpreter, statement)
+    end
+    return nothing
 end
 
 function evaluate_statement(interpreter::Interpreter, node::Parse.SyntaxNode)

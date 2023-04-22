@@ -639,6 +639,14 @@ function recover(ps::ParseStream, error_msg::String)
     return nothing
 end
 
+function parse_toplevel(ps::ParseStream)
+    mark = position(ps)
+    while peek(ps) != K"EndMarker"
+        parse_declaration(ps)
+    end
+    emit(ps, mark, K"toplevel")
+end
+
 function parse_declaration(ps::ParseStream)
     if peek(ps) == K"var"
         parse_var_declaration(ps)
@@ -766,7 +774,7 @@ Base.display_error(io::IO, err::ParseError, bt) = showerror(io, err, bt)
 # TODO: Re-evaluate simplifying to single function, rather than parseall, parsestmt, parseatom.
 function parseall(::Type{T}, text::AbstractString, index::Int=1) where {T}
     stream = ParseStream(text, index)
-    parse_declaration(stream)
+    parse_toplevel(stream)
     validate_tokens(stream)
     if peek(stream) != K"EndMarker"
         emit_diagnostic(stream, "Unexpected text after parsing input")
