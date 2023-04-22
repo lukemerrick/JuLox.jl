@@ -306,6 +306,8 @@ function emit(stream::ParseStream, mark::ParseStreamPosition, kind::Kind; error=
         # nested.
         fbyte = startbyte(stream.tokens[first_token])
         lbyte = endbyte(stream.tokens[stream.finished_token_index])
+        # If the `first_token` is the EndMarker, we need to adjust.
+        fbyte = min(fbyte, length(stream.text_buf))
         emit_diagnostic(stream, fbyte:lbyte, error)
     end
     push!(stream.ranges, range)
@@ -607,23 +609,41 @@ function consume(ps::ParseStream, expected::Kind)
     if peek(ps) == expected
         bump(ps)
     else
-        b = last_byte(ps)
-        emit_diagnostic(ps.diagnostics, b:b-1, "Expected '$(convert(String, expected))'.")
+        recover(ps, "Expected '$(convert(String, expected))' not found.")
     end
 end
 
-function parse_declaration(ps::ParseStream)
-    try
-        if peek(ps) == K"var"
-            parse_var_declaration(ps)
-        else
-            parse_statement(ps)
+"""Recover from invalid synax by trying to find the start of the next statement."""
+# NOTE: Since we aren't throwing exceptions in the `parse_` functions, we need to use
+# the JuliaSyntax.jl appraoch and call `recover` in all places where we would throw
+# and exception, rather than calling it once in a big wrapping try-catch block.
+function recover(ps::ParseStream, error_msg::String)
+    mark = position(ps)
+    while (k = peek(ps)) != K"EndMarker"
+
+        # If we hit a semicolon, we probably start a statement just after.
+        if k == K";"
+            bump(ps)
+            break
         end
-    catch e
-        !isa(e, RuntimeError) && rethrow()
-        # TODO: Support error recovery.
-        # synchronize(ps)
-        error("Parser error recovery not yet implemented.")
+
+        # If we hit one of these keywords, we probably start a statement with it.
+        if k ∈ KSet"class fun var for if while print return"
+            break
+        end
+
+        # Keep bumping and dumping, otherwise!
+        bump(ps)
+    end
+    emit(ps, mark, K"error"; error=error_msg)
+    return nothing
+end
+
+function parse_declaration(ps::ParseStream)
+    if peek(ps) == K"var"
+        parse_var_declaration(ps)
+    else
+        parse_statement(ps)
     end
 end
 
@@ -689,7 +709,7 @@ function parse_unary(ps::ParseStream)
     if peek(ps) ∈ KSet"! -"
         mark = position(ps)
         bump(ps)
-        parse_primary(ps)
+        parse_unary(ps)
         emit(ps, mark, K"unary")
     else
         parse_primary(ps)
@@ -715,6 +735,9 @@ function parse_primary(ps::ParseStream)
 
         # Emit a grouping inner node.
         emit(ps, mark, K"grouping")
+    else
+        # We got all the way down looking for some kind of expression and found nothing.
+        emit(ps, mark, K"error"; error="Expect expression.")
     end
 end
 
