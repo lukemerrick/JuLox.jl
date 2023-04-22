@@ -28,6 +28,11 @@ function define!(env::Environment, name::Symbol, value::Any)
     env.values[name] = value
 end
 
+function assign!(env::Environment, name::Symbol, value::Any, code_position::Int)
+    name ∉ keys(env.values) && throw(RuntimeError("Undefined variable $(name)", code_position))
+    env.values[name] = value
+end
+
 function get(env::Environment, name::Symbol, code_position::Int)
     haskey(env.values, name) && return env.values[name]
     throw(RuntimeError("Undefined variable $(name)", code_position))
@@ -114,6 +119,18 @@ function evaluate_expression(interpreter::Interpreter, node::Parse.SyntaxNode)
     k == K"grouping" && return evaluate_grouping(interpreter, node)
     k == K"unary" && return evaluate_unary(interpreter, node)
     k == K"infix_operation" && return evaluate_infix_operation(interpreter, node)
+    k == K"assignment" && return evaluate_assignment(interpreter, node)
+    return nothing
+end
+
+function evaluate_assignment(interpreter::Interpreter, node::Parse.SyntaxNode)
+    c = Parse.children(node)
+    @assert length(c) == 2
+    l_node, r_node = c
+    @assert kind(l_node) == K"Identifier"
+    name = l_node.value
+    value = evaluate_expression(interpreter, r_node)
+    assign!(interpreter.env, name, value, l_node.position)
     return nothing
 end
 

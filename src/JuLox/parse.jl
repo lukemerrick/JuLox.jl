@@ -683,8 +683,36 @@ function parse_statement(ps::ParseStream)
 end
 
 function parse_expression(ps::ParseStream)
-    parse_equality(ps)
+    parse_assignment(ps)
     return nothing
+end
+
+function parse_assignment(ps::ParseStream)
+    mark = position(ps)
+
+    # Parse left side of assignment (or only side of non-assignment!)
+    parse_equality(ps)
+
+    # Check for a right side.
+    if peek(ps) == K"="
+        mark2 = bump(ps)
+
+        # Parse the right side.
+        parse_expression(ps)
+
+        # Look back to left side of assignment to ensure it's an identifier.
+        # TODO: Ensure this isn't too hacky compared to the JLox approach.
+        left_side_tokens = [
+            t for t in ps.tokens[mark.token_index+1:mark2.token_index] if !is_whitespace(kind(t))
+        ]
+        @assert kind(left_side_tokens[end]) == K"="
+        if length(left_side_tokens) != 2 || kind(left_side_tokens[1]) != K"Identifier"
+            emit(ps, mark, K"error"; error="Invalid assignment target.")
+        else
+            # Emit the assignment.
+            emit(ps, mark, K"assignment")
+        end
+    end
 end
 
 function parse_infix_operator(ps::ParseStream, op_kset::Tuple{Vararg{Kind}}, left_right_parse_fn::Function)

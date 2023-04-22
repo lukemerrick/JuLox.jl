@@ -80,6 +80,7 @@ const _kind_names =
     "BEGIN_SYNTAX_KINDS"
         "block"
         "call"
+        "assignment"
         "grouping"
         "infix_operation"
         "unary"
