@@ -2,7 +2,7 @@
 
 module Parse
 using Fractal: JuLox
-using Fractal.JuLox.Tokenize: Tokenize, RawToken, startbyte, endbyte
+using Fractal.JuLox.Tokenize: Tokenize, Token, startbyte, endbyte
 using Fractal.JuLox: Kind, @K_str, @KSet_str, is_whitespace, is_error, kind, span
 import Fractal.JuLox: kind, _token_error_descriptions
 

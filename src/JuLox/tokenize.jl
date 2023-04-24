@@ -55,29 +55,29 @@ const kw_hash = Dict(
 #-------------------------------------------------------------------------------
 # Tokens.
 
-struct RawToken
+struct Token
     _kind::JuLox.Kind
     # Offsets into a string or buffer
     _startbyte::Int # The byte where the token start in the buffer
     _endbyte::Int # The byte where the token ended in the buffer
 end
-RawToken() = RawToken(K"error", 0, 0)
+Token() = Token(K"error", 0, 0)
 
-JuLox.kind(t::RawToken) = t._kind
-startbyte(t::RawToken) = t._startbyte
-endbyte(t::RawToken) = t._endbyte
-JuLox.span(token::RawToken) = endbyte(token) - startbyte(token) + 1
+JuLox.kind(t::Token) = t._kind
+startbyte(t::Token) = t._startbyte
+endbyte(t::Token) = t._endbyte
+JuLox.span(token::Token) = endbyte(token) - startbyte(token) + 1
 
-function untokenize(t::RawToken, str::String)
+function untokenize(t::Token, str::String)
     String(codeunits(str)[1 .+ (t.startbyte:t.endbyte)])
 end
 
-function Base.show(io::IO, t::RawToken)
+function Base.show(io::IO, t::Token)
     print(io, rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
     print(io, rpad(kind(t), 15, " "))
 end
 
-const EMPTY_TOKEN = RawToken()
+const EMPTY_TOKEN = Token()
 Base.__throw_invalid_ascii
 
 #-------------------------------------------------------------------------------
@@ -148,7 +148,7 @@ Base.seek(l::Lexer, pos) = seek(l._io, pos)
 
 Base.IteratorSize(::Type{<:Lexer}) = Base.SizeUnknown()
 Base.IteratorEltype(::Type{<:Lexer}) = Base.HasEltype()
-Base.eltype(::Type{<:Lexer}) = RawToken
+Base.eltype(::Type{<:Lexer}) = Token
 
 function Base.iterate(l::Lexer, isdone::Any)
     isdone && return nothing
@@ -209,14 +209,14 @@ end
 """
     start_token!(l::Lexer)
 
-Updates the lexer's state such that the next  `RawToken` will start at the current
+Updates the lexer's state such that the next  `Token` will start at the current
 position.
 """
 function start_token!(l::Lexer)
     l._token_startpos = position(l)
 end
 
-emit(l::Lexer, kind::JuLox.Kind) = RawToken(kind, startpos(l), position(l) - 1)
+emit(l::Lexer, kind::JuLox.Kind) = Token(kind, startpos(l), position(l) - 1)
 
 function emit_error(l::Lexer, err::JuLox.Kind)
     @assert is_error(err)
@@ -226,9 +226,9 @@ end
 """
     next_token(l::Lexer)
 
-Returns the next `RawToken`.
+Returns the next `Token`.
 """
-function next_token(l::Lexer)::RawToken
+function next_token(l::Lexer)::Token
     # Advance starting position to the next token.
     start_token!(l)
 

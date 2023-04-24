@@ -77,7 +77,7 @@ mutable struct ParseStream
     _finished_token_index::Int
     _lookahead_index::Int
     # Buffer of tokens
-    _tokens::Vector{RawToken}
+    _tokens::Vector{Token}
     # Parser output as an ordered sequence of ranges, parent nodes after children.
     _ranges::Vector{TaggedRange}
     # Parsing diagnostics (errors/warnings etc)
@@ -95,7 +95,7 @@ mutable struct ParseStream
             lexer,
             0,
             1,
-            Vector{RawToken}(),
+            Vector{Token}(),
             Vector{TaggedRange}(),
             Vector{Diagnostic}(),
             0,
