@@ -72,7 +72,7 @@ mutable struct ParseStream
     # the `textbuf` owner was unknown (eg, ptr,length was passed)
     _text_root::Any
     # Lexer, transforming the input bytes into a token stream
-    _lexer::Tokenize.Lexer{IOBuffer}
+    _lexer::Tokenize.Tokenizer{IOBuffer}
     # Track position in tokens
     _finished_token_index::Int
     _lookahead_index::Int
@@ -88,7 +88,7 @@ mutable struct ParseStream
     function ParseStream(text_buf::Vector{UInt8}, text_root, next_byte::Integer)
         io = IOBuffer(text_buf)
         seek(io, next_byte - 1)
-        lexer = Tokenize.Lexer(io)
+        lexer = Tokenize.Tokenizer(io)
         new(
             text_buf,
             text_root,
@@ -161,7 +161,7 @@ end
 # Defining `peek()`.
 
 # Buffer several tokens ahead
-function _buffer_lookahead_tokens(lexer::Tokenize.Lexer, tokens)
+function _buffer_lookahead_tokens(lexer::Tokenize.Tokenizer, tokens)
     token_count = 0
     while true
         raw = Tokenize.next_token(lexer)
