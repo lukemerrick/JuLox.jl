@@ -78,13 +78,13 @@ const _kind_names =
     # syntax doesn't have a token corresponding to the node type.
     # TODO: Update this guesswork to match what's needed by Lox, and remove what's not!
     "BEGIN_SYNTAX_KINDS"
-        "block"
         "call"
         "assignment"
         "grouping"
         "infix_operation"
         "unary"
         "BEGIN_STATEMENTS"
+            "block"
             "print_statement"
             "expression_statement"
             "var_decl_statement"

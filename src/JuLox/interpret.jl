@@ -7,40 +7,48 @@ struct RuntimeError <: Exception
 end
 
 struct Environment
+    enclosing::Union{Nothing,Environment}
     values::Dict{Symbol,Any}
 
-    function Environment()
-        values = Dict{Symbol,Any}()
-        return new(values)
+    # The `values` dict is always created from scratch when creating an `Environment`.
+    function Environment(enclosing::Union{Nothing,Environment})
+        return new(enclosing, Dict{Symbol,Any}())
     end
 end
 
-struct Interpreter
-    env::Environment
+Environment() = Environment(nothing)
 
-    function Interpreter()
-        env = Environment()
-        return new(env)
+function define!(environment::Environment, name::Symbol, value::Any)
+    environment.values[name] = value
+end
+
+function assign!(environment::Environment, name::Symbol, value::Any, code_position::Int)
+    if name ∈ keys(environment.values)
+        # Use local scope if possible.
+        environment.values[name] = value
+    elseif !isnothing(environment.enclosing)
+        # Fall back to enclosing scope.
+        assign!(environment.enclosing, name, value, code_position)
+    else
+        # Throw an error if we can't find the `name`-ed item.
+        throw(RuntimeError("Undefined variable $(name)", code_position))
     end
 end
 
-function define!(env::Environment, name::Symbol, value::Any)
-    env.values[name] = value
-end
+function get(environment::Environment, name::Symbol, code_position::Int)
+    # Check the local scope.
+    haskey(environment.values, name) && return environment.values[name]
 
-function assign!(env::Environment, name::Symbol, value::Any, code_position::Int)
-    name ∉ keys(env.values) && throw(RuntimeError("Undefined variable $(name)", code_position))
-    env.values[name] = value
-end
+    # Fall back to enclosing scope.
+    !isnothing(environment.enclosing) && return get(environment.enclosing, name, code_position)
 
-function get(env::Environment, name::Symbol, code_position::Int)
-    haskey(env.values, name) && return env.values[name]
+    # Throw an error if we can't find the `name`-ed item.
     throw(RuntimeError("Undefined variable $(name)", code_position))
 end
 
-function interpret(interpreter::Interpreter, node::Parse.SyntaxNode, source::String)
+function interpret(environment::Environment, node::Parse.SyntaxNode, source::String)
     try
-        evaluate_toplevel(interpreter, node)
+        evaluate_toplevel(environment, node)
         had_error = false
         return had_error
     catch e
@@ -65,95 +73,107 @@ function stringify(value)
     return string(value)
 end
 
-function evaluate_toplevel(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_toplevel(environment::Environment, node::Parse.SyntaxNode)
     @assert kind(node) == K"toplevel"
     for statement in Parse.children(node)
-        evaluate_statement(interpreter, statement)
+        evaluate_statement(environment, statement)
     end
     return nothing
 end
 
-function evaluate_statement(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_block_statement(environment::Environment, node::Parse.SyntaxNode)
+    @assert kind(node) == K"block"
+    block_environment = Environment(environment)
+    for statement in Parse.children(node)
+        evaluate_statement(block_environment, statement)
+    end
+    return nothing
+end
+
+function evaluate_statement(environment::Environment, node::Parse.SyntaxNode)
     @assert is_statement(node)
-    if kind(node) == K"expression_statement"
-        return evaluate_expression_statement(interpreter, node)
-    elseif kind(node) == K"print_statement"
-        return evaluate_print_statement(interpreter, node)
-    elseif kind(node) == K"var_decl_statement"
-        evaluate_var_statement(interpreter, node)
+    k = kind(node)
+    if k == K"expression_statement"
+        return evaluate_expression_statement(environment, node)
+    elseif k == K"print_statement"
+        return evaluate_print_statement(environment, node)
+    elseif k == K"var_decl_statement"
+        evaluate_var_statement(environment, node)
+    elseif k == K"block"
+        evaluate_block_statement(environment, node)
     end
 
     # Unreachable.
     return nothing
 end
 
-function evaluate_var_statement(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_var_statement(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) ∈ (1, 2)
     var = c[1]
     @assert kind(var) == K"Identifier"
     name = var.value
-    value = length(c) == 2 ? evaluate_expression(interpreter, c[2]) : nothing
-    define!(interpreter.env, name, value)
+    value = length(c) == 2 ? evaluate_expression(environment, c[2]) : nothing
+    define!(environment, name, value)
     return nothing
 end
 
-function evaluate_expression_statement(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_expression_statement(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 1
-    evaluate_expression(interpreter, c[1])
+    evaluate_expression(environment, c[1])
     return nothing
 end
 
-function evaluate_print_statement(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_print_statement(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 1
-    println(stringify(evaluate_expression(interpreter, c[1])))
+    println(stringify(evaluate_expression(environment, c[1])))
     return nothing
 end
 
-function evaluate_expression(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_expression(environment::Environment, node::Parse.SyntaxNode)
     k = kind(node)
-    k == K"Identifier" && return evaluate_variable(interpreter, node)
+    k == K"Identifier" && return evaluate_variable(environment, node)
     is_literal(k) && return evaluate_literal(node)
-    k == K"grouping" && return evaluate_grouping(interpreter, node)
-    k == K"unary" && return evaluate_unary(interpreter, node)
-    k == K"infix_operation" && return evaluate_infix_operation(interpreter, node)
-    k == K"assignment" && return evaluate_assignment(interpreter, node)
+    k == K"grouping" && return evaluate_grouping(environment, node)
+    k == K"unary" && return evaluate_unary(environment, node)
+    k == K"infix_operation" && return evaluate_infix_operation(environment, node)
+    k == K"assignment" && return evaluate_assignment(environment, node)
     return nothing
 end
 
-function evaluate_assignment(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_assignment(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 2
     l_node, r_node = c
     @assert kind(l_node) == K"Identifier"
     name = l_node.value
-    value = evaluate_expression(interpreter, r_node)
-    assign!(interpreter.env, name, value, l_node.position)
+    value = evaluate_expression(environment, r_node)
+    assign!(environment, name, value, l_node.position)
     return nothing
 end
 
-function evaluate_variable(interpreter::Interpreter, node::Parse.SyntaxNode)
-    return get(interpreter.env, node.value, node.position)
+function evaluate_variable(environment::Environment, node::Parse.SyntaxNode)
+    return get(environment, node.value, node.position)
 end
 
 function evaluate_literal(node::Parse.SyntaxNode)
     return node.value
 end
 
-function evaluate_grouping(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_grouping(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 1
-    return evaluate_expression(interpreter, c[1])
+    return evaluate_expression(environment, c[1])
 end
 
-function evaluate_unary(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_unary(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 2
     operator, operand = c
     operator_kind = kind(operator)
-    operand_value = evaluate_expression(interpreter, operand)
+    operand_value = evaluate_expression(environment, operand)
     if operator_kind == K"-"
         raise_on_non_number_in_operation(operator, operand_value)
         return -operand_value
@@ -165,13 +185,13 @@ function evaluate_unary(interpreter::Interpreter, node::Parse.SyntaxNode)
     return nothing
 end
 
-function evaluate_infix_operation(interpreter::Interpreter, node::Parse.SyntaxNode)
+function evaluate_infix_operation(environment::Environment, node::Parse.SyntaxNode)
     c = Parse.children(node)
     @assert length(c) == 3
     left_node, operator_node, right_node = c
     operator_kind = kind(operator_node)
-    left_value = evaluate_expression(interpreter, left_node)
-    right_value = evaluate_expression(interpreter, right_node)
+    left_value = evaluate_expression(environment, left_node)
+    right_value = evaluate_expression(environment, right_node)
     if operator_kind == K"-"
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value - right_value

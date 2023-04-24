@@ -58,17 +58,17 @@ end
 function run_parse(line::String)
     exit_code = 0
     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-    println("Green Tree")
+    println("Lossless Syntax Tree")
     show(stdout, tree.green_node, line)
     println()
-    println("Syntax Tree")
+    println("Lossy Syntax Tree")
     show(stdout, tree)
     # println("Next byte: $(next_byte)")
     return exit_code
 end
 
 
-function run(interpreter::Interpret.Interpreter, line::String)
+function run(environment::Interpret.Environment, line::String)
     println("Tokens")
     run_just_tokenize(line)
     println()
@@ -76,7 +76,8 @@ function run(interpreter::Interpret.Interpreter, line::String)
     println()
     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
     println("Interpreter")
-    had_error = Interpret.interpret(interpreter, tree, line)
+    println("-----------")
+    had_error = Interpret.interpret(environment, tree, line)
     exit_code = had_error ? 70 : 0
     return exit_code
 end
@@ -101,8 +102,8 @@ function run_prompt()::Integer
         "\n\n"
     )
 
-    # Initialize interpreter state.
-    interpreter = Interpret.Interpreter()
+    # Initialize interpreter global environment.
+    environment = Interpret.Environment()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -130,7 +131,7 @@ function run_prompt()::Integer
         end
         if line != "\n"
             try
-                run(interpreter, line)
+                run(environment, line)
             catch e
                 !isa(e, Parse.ParseError) && rethrow()
                 showerror(stdout, e)
@@ -142,8 +143,8 @@ function run_prompt()::Integer
 end
 
 function run_file(filepath::String)::Integer
-    interpreter = Interpret.Interpreter()
-    exit_code = run(interpreter, read(filepath, String))
+    environment = Interpret.Environment()
+    exit_code = run(environment, read(filepath, String))
     return exit_code
 end
 end  # module

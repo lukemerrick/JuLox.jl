@@ -1,8 +1,8 @@
 """Heavily adapted from JuliaSyntax.jl on 2023.04.05"""
 
 module Tokenize
-using Fractal.JuLox: Kind, @K_str
-import Fractal.JuLox: kind, is_literal, is_error
+using Fractal: JuLox
+using Fractal.JuLox: @K_str, kind, is_literal, is_error
 
 # Create EOF sentinel value.
 const EOF_CHAR = typemax(Char)
@@ -56,16 +56,17 @@ const kw_hash = Dict(
 # Tokens.
 
 struct RawToken
-    _kind::Kind
+    _kind::JuLox.Kind
     # Offsets into a string or buffer
     _startbyte::Int # The byte where the token start in the buffer
     _endbyte::Int # The byte where the token ended in the buffer
 end
 RawToken() = RawToken(K"error", 0, 0)
 
-kind(t::RawToken) = t._kind
+JuLox.kind(t::RawToken) = t._kind
 startbyte(t::RawToken) = t._startbyte
 endbyte(t::RawToken) = t._endbyte
+JuLox.span(token::RawToken) = endbyte(token) - startbyte(token) + 1
 
 function untokenize(t::RawToken, str::String)
     String(codeunits(str)[1 .+ (t.startbyte:t.endbyte)])
@@ -82,6 +83,8 @@ Base.__throw_invalid_ascii
 #-------------------------------------------------------------------------------
 # Lexer struct.
 
+@enum StringState OUTSIDE=1 INSIDE_UNFINISHED=2 INSIDE_FINISHED=3
+
 """
 `Lexer` reads from an input stream and emits a single token each time
 `next_token` is called.
@@ -91,7 +94,7 @@ mutable struct Lexer{IO_t<:IO}
     _token_startpos::Int
     _position::Int
     _chars::Tuple{Char,Char,Char}
-    _in_string::Bool
+    _string_state::StringState
 end
 
 # Initialize Lexer from just IO by reading up to the first three characters.
@@ -114,7 +117,7 @@ function Lexer(io::IO)
             c3 = read(io, Char)
         end
     end
-    return Lexer(io, startpos, currentpos, (c1, c2, c3), false)
+    return Lexer(io, startpos, currentpos, (c1, c2, c3), OUTSIDE)
 end
 Lexer(str::AbstractString) = Lexer(IOBuffer(str))
 
@@ -173,7 +176,7 @@ tokenize(x) = Lexer(x)
 startpos(l::Lexer) = l._token_startpos
 peekchar(l::Lexer) = l._chars[2]
 peekchar2(l::Lexer) = l._chars[3]
-instring(l::Lexer) = l._in_string
+string_state(l::Lexer) = l._string_state
 
 readchar(io::IO) = eof(io) ? EOF_CHAR : read(io, Char)
 function readchar(l::Lexer)
@@ -213,9 +216,9 @@ function start_token!(l::Lexer)
     l._token_startpos = position(l)
 end
 
-emit(l::Lexer, kind::Kind) = RawToken(kind, startpos(l), position(l) - 1)
+emit(l::Lexer, kind::JuLox.Kind) = RawToken(kind, startpos(l), position(l) - 1)
 
-function emit_error(l::Lexer, err::Kind)
+function emit_error(l::Lexer, err::JuLox.Kind)
     @assert is_error(err)
     return emit(l, err)
 end
@@ -230,7 +233,7 @@ function next_token(l::Lexer)::RawToken
     start_token!(l)
 
     # If we are in a string, tokenize until the closing quote mark.
-    instring(l) && peekchar(l) != '"' && return lex_string(l)
+    string_state(l) == INSIDE_UNFINISHED && return lex_string(l)
 
     # If we are *not* in a string, tokenize normally.
     c = readchar(l)
@@ -284,9 +287,9 @@ function next_token(l::Lexer)::RawToken
     end
 end
 
-# Lex string, a quote `"` has been tokenized already.
+# Lex string when an opening quote `"` has been tokenized already.
 function lex_string(l::Lexer)
-    @assert instring(l)
+    @assert string_state(l) == INSIDE_UNFINISHED
     
     # Read through the string.
     pc = peekchar(l)
@@ -299,11 +302,13 @@ function lex_string(l::Lexer)
     if pc == EOF_CHAR
         # Normally a closing quote terminates a string via a call to `lex_quote`, but if
         # there isn't a closing quote, we must terminate here in `lex_string` instead.
-        l._in_string = false
+        l._string_state = OUTSIDE
         # TODO: Consider if emitting a token with start byte i and end byte i - 1 should be
         # avoided.
         return emit_error(l, K"ErrorUnterminatedString")
     else
+        # Finish and emit.
+        l._string_state = INSIDE_FINISHED
         return emit(l, K"String")
     end
 end
@@ -345,7 +350,13 @@ function lex_forwardslash(l::Lexer)
 end
 
 function lex_quote(l::Lexer)
-    l._in_string = !l._in_string
+    if l._string_state == OUTSIDE
+        l._string_state = INSIDE_UNFINISHED
+    elseif l._string_state == INSIDE_FINISHED
+        l._string_state = OUTSIDE
+    else
+        error("Should not `lex_quote` when string state is INSIDE_UNFINISHED")
+    end 
     emit(l, K"\"")
 end 
 

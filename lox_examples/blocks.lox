@@ -1,0 +1,44 @@
+var x = 1;
+var y = "a";
+print "expecting 1";
+print x;
+print "";
+print "expecting a";
+print y;
+print "";
+{
+    // reassign global x
+    x = 2;
+    // shadow global y
+    var y = "b";
+    // create local z
+    var z = "inside";
+
+    // print everything
+    print "expecting 2";
+    print x;
+    print "";
+    print "expecting b";
+    print y;
+    print "";
+    print "expecting inside";
+    print z;
+    print "";
+    
+}
+print "expecting 2";
+print x;
+print "";
+print "expecting a";
+print y;
+print "";
+
+// test reassignment of x
+x = 3;
+print "expecting 3";
+print x;
+print "";
+
+// ensure y doesn't exist in the outer scope
+print "expecting error undefined variable z";
+print z;
