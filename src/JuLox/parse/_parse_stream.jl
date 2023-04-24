@@ -67,12 +67,12 @@ mutable struct ParseStream
     #
     # We want `ParseStream` to be concrete so that all `parse_*` functions only
     # need to be compiled once. Thus `textbuf` must not be parameterized here.
-    _text_buf::Vector{UInt8}
+    _text_buf::AbstractString
     # GC root for the object which owns the memory in `textbuf`. `nothing` if
     # the `textbuf` owner was unknown (eg, ptr,length was passed)
     _text_root::Any
     # Lexer, transforming the input bytes into a token stream
-    _lexer::Tokenize.Tokenizer{IOBuffer}
+    _lexer::Tokenize.Tokenizer
     # Track position in tokens
     _finished_token_index::Int
     _lookahead_index::Int
@@ -85,12 +85,11 @@ mutable struct ParseStream
     # Counter for number of peek()s we've done without making progress via a bump()
     _peek_count::Int
 
-    function ParseStream(text_buf::Vector{UInt8}, text_root, next_byte::Integer)
-        io = IOBuffer(text_buf)
-        seek(io, next_byte - 1)
-        lexer = Tokenize.Tokenizer(io)
+    function ParseStream(source::AbstractString, text_root, next_byte::Integer)
+        @assert next_byte == 1
+        lexer = Tokenize.Tokenizer(source)
         new(
-            text_buf,
+            source,
             text_root,
             lexer,
             0,
@@ -103,21 +102,8 @@ mutable struct ParseStream
     end
 end
 
-# Constructor for a directly-passed Vector{UInt8} buffer.
-function ParseStream(text::Vector{UInt8}, index::Integer=1)
-    return ParseStream(text, text, index)
-end
-
-# Constructor for buffers originating from strings.
-function ParseStream(text::String, index::Integer=1)
-    return ParseStream(unsafe_wrap(Vector{UInt8}, text), text, index)
-end
-function ParseStream(text::SubString, index::Integer=1)
-    # See also IOBuffer(SubString("x"))
-    return ParseStream(unsafe_wrap(Vector{UInt8}, pointer(text), sizeof(text)), text, index)
-end
 function ParseStream(text::AbstractString, index::Integer=1)
-    return ParseStream(String(text), index)
+    return ParseStream(text, text, index)
 end
 
 #-------------------------------------------------------------------------------

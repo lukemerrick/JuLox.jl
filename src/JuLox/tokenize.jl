@@ -1,5 +1,3 @@
-"""Heavily adapted from JuliaSyntax.jl on 2023.04.05"""
-
 module Tokenize
 using Fractal: JuLox
 using Fractal.JuLox: @K_str, kind, is_literal, is_error
@@ -53,24 +51,21 @@ const kw_hash = Dict(
 )
 
 #-------------------------------------------------------------------------------
-# Tokens.
+# Token.
 
 struct Token
     _kind::JuLox.Kind
-    # Offsets into a string or buffer
     _startbyte::Int # The byte where the token start in the buffer
     _endbyte::Int # The byte where the token ended in the buffer
+    _text::String
 end
-Token() = Token(K"error", 0, 0)
+Token() = Token(K"error", 0, 0, "")
 
 JuLox.kind(t::Token) = t._kind
 startbyte(t::Token) = t._startbyte
 endbyte(t::Token) = t._endbyte
+text(t::Token) = t._text
 JuLox.span(token::Token) = endbyte(token) - startbyte(token) + 1
-
-function untokenize(t::Token, str::String)
-    String(codeunits(str)[1 .+ (t.startbyte:t.endbyte)])
-end
 
 function Base.show(io::IO, t::Token)
     print(io, rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
@@ -78,85 +73,87 @@ function Base.show(io::IO, t::Token)
 end
 
 const EMPTY_TOKEN = Token()
-Base.__throw_invalid_ascii
 
 #-------------------------------------------------------------------------------
-# Lexer struct.
+# Tokenizer.
 
 @enum StringState OUTSIDE=1 INSIDE_UNFINISHED=2 INSIDE_FINISHED=3
 
 """
-`Lexer` reads from an input stream and emits a single token each time
+`Tokenizer` reads from an input stream and emits a single token each time
 `next_token` is called.
 """
-mutable struct Tokenizer{IO_t<:IO}
-    _io::IO_t
+mutable struct Tokenizer
+    _io::IOBuffer
     _token_startpos::Int
     _position::Int
     _chars::Tuple{Char,Char,Char}
     _string_state::StringState
-end
+    _token_in_progress::Vector{Char}
 
-# Initialize Tokenizer from just IO by reading up to the first three characters.
-function Tokenizer(io::IO)
-    # Fake a current character.
-    c1 = ' '
+    # Initialize Tokenizer from just IO by reading up to the first three characters.
+    function Tokenizer(str::AbstractString)
+        # We only need to interact with a string at an abstract buffer level.
+        io = IOBuffer(str)
 
-    # Record the start position.
-    startpos = position(io)
-    currentpos = startpos + 1
+        # Fake a current character.
+        c1 = ' '
 
-    # Read up to two more characters beyond the faked first one.
-    if eof(io)
-        c2, c3 = EOF_CHAR, EOF_CHAR
-    else
-        c2 = read(io, Char)
+        # Record the start position.
+        startpos = position(io)
+        currentpos = startpos + 1
+
+        # Read up to two more characters beyond the faked first one.
         if eof(io)
-            c3 = EOF_CHAR
+            c2, c3 = EOF_CHAR, EOF_CHAR
         else
-            c3 = read(io, Char)
+            c2 = read(io, Char)
+            if eof(io)
+                c3 = EOF_CHAR
+            else
+                c3 = read(io, Char)
+            end
         end
+        return new(io, startpos, currentpos, (c1, c2, c3), OUTSIDE, Char[])
     end
-    return Tokenizer(io, startpos, currentpos, (c1, c2, c3), OUTSIDE)
 end
-Tokenizer(str::AbstractString) = Tokenizer(IOBuffer(str))
 
 # Pretty printing.
-function Base.show(io::IO, l::Tokenizer)
-    print(io, typeof(l), " at position: ", position(l))
+function Base.show(io::IO, tokenizer::Tokenizer)
+    print(io, typeof(tokenizer), " at position: ", position(tokenizer))
 end
 
 # Implement methods for some other IO/stream functions.
 """
-    position(l::Lexer)
+    position(tokenizer::Tokenizer)
 
 Returns the current position.
 """
-Base.position(l::Tokenizer) = l._position
+Base.position(tokenizer::Tokenizer) = tokenizer._position
 
 """
-    eof(l::Lexer)
+    eof(tokenizer::Tokenizer)
 
 Determine whether the end of the lexer's underlying buffer has been reached.
 """
-Base.eof(l::Tokenizer) = eof(l._io)
+Base.eof(tokenizer::Tokenizer) = eof(tokenizer._io)
 
-Base.seek(l::Tokenizer, pos) = seek(l._io, pos)
+Base.seek(tokenizer::Tokenizer, pos) = seek(tokenizer._io, pos)
 
 #-------------------------------------------------------------------------------
-# Lexer iterator interface.
+# Iterator interface.
 
 Base.IteratorSize(::Type{<:Tokenizer}) = Base.SizeUnknown()
 Base.IteratorEltype(::Type{<:Tokenizer}) = Base.HasEltype()
 Base.eltype(::Type{<:Tokenizer}) = Token
 
-function Base.iterate(l::Tokenizer, isdone::Any)
+function Base.iterate(tokenizer::Tokenizer, isdone::Any)
     isdone && return nothing
-    t = next_token(l)
+    t = next_token(tokenizer)
     isdone = kind(t) == K"EndMarker"
     return t, isdone
 end
-Base.iterate(l::Tokenizer) = iterate(l, false)
+Base.iterate(tokenizer::Tokenizer) = iterate(tokenizer, false)
 
 #-------------------------------------------------------------------------------
 # Lexing implementation.
@@ -165,62 +162,49 @@ Base.iterate(l::Tokenizer) = iterate(l, false)
 @inline isalphanumeric(c::Char) = isalpha(c) || isdigit(c)
 @inline iswhitespace(c::Char) = Base.isvalid(c) && Base.isspace(c)
 
-"""
-    tokenize(x)
-
-Returns an `Iterable` containing the tokenized input. Can be reverted by e.g.
-`join(untokenize.(tokenize(x)))`.
-"""
-tokenize(x) = Tokenizer(x)
-
-startpos(l::Tokenizer) = l._token_startpos
-peekchar(l::Tokenizer) = l._chars[2]
-peekchar2(l::Tokenizer) = l._chars[3]
-string_state(l::Tokenizer) = l._string_state
+startpos(tokenizer::Tokenizer) = tokenizer._token_startpos
+peekchar(tokenizer::Tokenizer) = tokenizer._chars[2]
+peekchar2(tokenizer::Tokenizer) = tokenizer._chars[3]
+string_state(tokenizer::Tokenizer) = tokenizer._string_state
 
 readchar(io::IO) = eof(io) ? EOF_CHAR : read(io, Char)
-function readchar(l::Tokenizer)
-    c = readchar(l._io)
-    l._chars = (l._chars[2], l._chars[3], c)
-    l._position += 1
-    return l._chars[1]
+function readchar(tokenizer::Tokenizer)
+    c = readchar(tokenizer._io)
+    tokenizer._chars = (tokenizer._chars[2], tokenizer._chars[3], c)
+    current_char = tokenizer._chars[1]
+    push!(tokenizer._token_in_progress, current_char)
+    tokenizer._position += 1
+    return current_char
 end
 
-"""
-    accept(l::Lexer, f::Union{Function, Char, Vector{Char}, String})
-
-Consumes the next character `c` if either `f::Function(c)` returns true, `c == f`
-for `c::Char` or `c in f` otherwise. Returns `true` if a character has been
-consumed and `false` otherwise.
-"""
-@inline function accept(l::Tokenizer, f::Union{Function,Char,Vector{Char},String})
-    c = peekchar(l)
-    if isa(f, Function)
-        ok = f(c)
-    elseif isa(f, Char)
-        ok = c == f
-    else
-        ok = c in f
-    end
-    ok && readchar(l)
+@inline function accept(tokenizer::Tokenizer, want_char::Char)
+    ok = peekchar(tokenizer) == want_char
+    ok && readchar(tokenizer)
     return ok
 end
 
 """
-    start_token!(l::Lexer)
+    start_token!(tokenizer::Tokenizer)
 
-Updates the lexer's state such that the next  `Token` will start at the current
-position.
+Updates the Tokenizer's state such that the next `Token` will start at the current
+position and the built-up work-in-progress text is cleared.
 """
-function start_token!(l::Tokenizer)
-    l._token_startpos = position(l)
+function start_token!(tokenizer::Tokenizer)
+    empty!(tokenizer._token_in_progress)
+    tokenizer._token_startpos = position(tokenizer)
 end
 
-emit(l::Tokenizer, kind::JuLox.Kind) = Token(kind, startpos(l), position(l) - 1)
+function emit(tokenizer::Tokenizer, kind::JuLox.Kind)
+    startbyte = startpos(tokenizer)
+    endbyte = position(tokenizer) - 1
+    text = String(tokenizer._token_in_progress)
+    return Token(kind, startbyte, endbyte, text)
+end
 
-function emit_error(l::Tokenizer, err::JuLox.Kind)
-    @assert is_error(err)
-    return emit(l, err)
+# Passthrough with @assert for convenience.
+function emit_error(tokenizer::Tokenizer, err_kind::JuLox.Kind)
+    @assert is_error(err_kind)
+    return emit(tokenizer, err_kind)
 end
 
 """
@@ -228,163 +212,163 @@ end
 
 Returns the next `Token`.
 """
-function next_token(l::Tokenizer)::Token
+function next_token(tokenizer::Tokenizer)::Token
     # Advance starting position to the next token.
-    start_token!(l)
+    start_token!(tokenizer)
 
     # If we are in a string, tokenize until the closing quote mark.
-    string_state(l) == INSIDE_UNFINISHED && return tokenize_string(l)
+    string_state(tokenizer) == INSIDE_UNFINISHED && return tokenize_string(tokenizer)
 
     # If we are *not* in a string, tokenize normally.
-    c = readchar(l)
+    c = readchar(tokenizer)
 
     if c == EOF_CHAR
-        return emit(l, K"EndMarker")
+        return emit(tokenizer, K"EndMarker")
     elseif iswhitespace(c)
-        return tokenize_whitespace(l, c)
+        return tokenize_whitespace(tokenizer, c)
 
     elseif c == '('
-        return emit(l, K"(")
+        return emit(tokenizer, K"(")
     elseif c == ')'
-        return emit(l, K")")
+        return emit(tokenizer, K")")
     elseif c == '{'
-        return emit(l, K"{")
+        return emit(tokenizer, K"{")
     elseif c == '}'
-        return emit(l, K"}")
+        return emit(tokenizer, K"}")
     elseif c == ','
-        return emit(l, K",")
+        return emit(tokenizer, K",")
     elseif c == '.'
-        return emit(l, K".")
+        return emit(tokenizer, K".")
     elseif c == '-'
-        return emit(l, K"-")
+        return emit(tokenizer, K"-")
     elseif c == '+'
-        return emit(l, K"+")
+        return emit(tokenizer, K"+")
     elseif c == ';'
-        return emit(l, K";")
+        return emit(tokenizer, K";")
     elseif c == '*'
-        return emit(l, K"*")
+        return emit(tokenizer, K"*")
 
     elseif c == '!'
-        return tokenize_exclaim(l)
+        return tokenize_exclaim(tokenizer)
     elseif c == '='
-        return tokenize_equal(l)
+        return tokenize_equal(tokenizer)
     elseif c == '<'
-        return tokenize_less(l)
+        return tokenize_less(tokenizer)
     elseif c == '>'
-        return tokenize_greater(l)
+        return tokenize_greater(tokenizer)
 
     elseif c == '/'
-        return tokenize_forwardslash(l)
+        return tokenize_forwardslash(tokenizer)
     elseif c == '"'
-        return tokenize_quote(l)
+        return tokenize_quote(tokenizer)
     elseif isdigit(c)
-        return tokenize_digit(l)
+        return tokenize_digit(tokenizer)
     elseif isalpha(c)
-        return tokenize_identifier(l, c)
+        return tokenize_identifier(tokenizer, c)
 
     else
-        emit_error(l, K"ErrorUnknownCharacter")
+        emit_error(tokenizer, K"ErrorUnknownCharacter")
     end
 end
 
 # Lex string when an opening quote `"` has been tokenized already.
-function tokenize_string(l::Tokenizer)
-    @assert string_state(l) == INSIDE_UNFINISHED
+function tokenize_string(tokenizer::Tokenizer)
+    @assert string_state(tokenizer) == INSIDE_UNFINISHED
     
     # Read through the string.
-    pc = peekchar(l)
+    pc = peekchar(tokenizer)
     while pc != '"' && pc != EOF_CHAR
-        readchar(l)
-        pc = peekchar(l)
+        readchar(tokenizer)
+        pc = peekchar(tokenizer)
     end
 
     # Check for unterminated string case.
     if pc == EOF_CHAR
         # Normally a closing quote terminates a string via a call to `tokenize_quote`, but if
         # there isn't a closing quote, we must terminate here in `tokenize_string` instead.
-        l._string_state = OUTSIDE
+        tokenizer._string_state = OUTSIDE
         # TODO: Consider if emitting a token with start byte i and end byte i - 1 should be
         # avoided.
-        return emit_error(l, K"ErrorUnterminatedString")
+        return emit_error(tokenizer, K"ErrorUnterminatedString")
     else
         # Finish and emit.
-        l._string_state = INSIDE_FINISHED
-        return emit(l, K"String")
+        tokenizer._string_state = INSIDE_FINISHED
+        return emit(tokenizer, K"String")
     end
 end
 
 # Lex whitespace, a whitespace char `c` has been consumed.
-function tokenize_whitespace(l::Tokenizer, c::Char)
+function tokenize_whitespace(tokenizer::Tokenizer, c::Char)
     hit_newline = c == '\n'
-    pc = peekchar(l)
+    pc = peekchar(tokenizer)
     # Stop on non whitespace or a second newline (we limit to one newline per token).
     while iswhitespace(pc) && !(hit_newline && pc == '\n')
-        c = readchar(l)
-        pc = peekchar(l)
+        c = readchar(tokenizer)
+        pc = peekchar(tokenizer)
         hit_newline = hit_newline || c == '\n'
     end
-    return emit(l, hit_newline ? K"NewlineWs" : K"Whitespace")
+    return emit(tokenizer, hit_newline ? K"NewlineWs" : K"Whitespace")
 end
 
 # One-or-two character tokens.
-tokenize_exclaim(l::Tokenizer) = accept(l, '=') ? emit(l, K"!=") : emit(l, K"!")
-tokenize_equal(l::Tokenizer) = accept(l, '=') ? emit(l, K"==") : emit(l, K"=")
-tokenize_less(l::Tokenizer) = accept(l, '=') ? emit(l, K"<=") : emit(l, K"<")
-tokenize_greater(l::Tokenizer) = accept(l, '=') ? emit(l, K">=") : emit(l, K">")
+tokenize_exclaim(tokenizer::Tokenizer) = accept(tokenizer, '=') ? emit(tokenizer, K"!=") : emit(tokenizer, K"!")
+tokenize_equal(tokenizer::Tokenizer) = accept(tokenizer, '=') ? emit(tokenizer, K"==") : emit(tokenizer, K"=")
+tokenize_less(tokenizer::Tokenizer) = accept(tokenizer, '=') ? emit(tokenizer, K"<=") : emit(tokenizer, K"<")
+tokenize_greater(tokenizer::Tokenizer) = accept(tokenizer, '=') ? emit(tokenizer, K">=") : emit(tokenizer, K">")
 
 # "//" comment or "/" forward slash.
-function tokenize_forwardslash(l::Tokenizer)
+function tokenize_forwardslash(tokenizer::Tokenizer)
     # Detect comment from two slashes.
-    if accept(l, '/')
+    if accept(tokenizer, '/')
         # Read until end of line or file, then return a comment token.
         while true
-            pc = peekchar(l)
+            pc = peekchar(tokenizer)
             if pc == '\n' || pc == EOF_CHAR
-                return emit(l, K"Comment")
+                return emit(tokenizer, K"Comment")
             end
-            readchar(l)
+            readchar(tokenizer)
         end
     else
-        return emit(l, K"/")
+        return emit(tokenizer, K"/")
     end
 end
 
-function tokenize_quote(l::Tokenizer)
-    if l._string_state == OUTSIDE
-        l._string_state = INSIDE_UNFINISHED
-    elseif l._string_state == INSIDE_FINISHED
-        l._string_state = OUTSIDE
+function tokenize_quote(tokenizer::Tokenizer)
+    if tokenizer._string_state == OUTSIDE
+        tokenizer._string_state = INSIDE_UNFINISHED
+    elseif tokenizer._string_state == INSIDE_FINISHED
+        tokenizer._string_state = OUTSIDE
     else
         error("Should not `tokenize_quote` when string state is INSIDE_UNFINISHED")
     end 
-    emit(l, K"\"")
+    emit(tokenizer, K"\"")
 end 
 
-function tokenize_digit(l::Tokenizer)
+function tokenize_digit(tokenizer::Tokenizer)
     # Read all subsequent digits.
-    while isdigit(peekchar(l))
-        readchar(l)
+    while isdigit(peekchar(tokenizer))
+        readchar(tokenizer)
     end
 
     # Handle the possibility of a fractional part.
-    has_fraction = peekchar(l) == '.' && isdigit(peekchar2(l))
+    has_fraction = peekchar(tokenizer) == '.' && isdigit(peekchar2(tokenizer))
     if has_fraction
-        readchar(l)
-        while isdigit(peekchar(l))
-            readchar(l)
+        readchar(tokenizer)
+        while isdigit(peekchar(tokenizer))
+            readchar(tokenizer)
         end
     end
 
-    return emit(l, K"Number")
+    return emit(tokenizer, K"Number")
 end
 
 
-function tokenize_identifier(l::Tokenizer, c::Char)
+function tokenize_identifier(tokenizer::Tokenizer, c::Char)
     # Read and hash all alphanumeric characters. 
     n = 1
     hashed_identifier = simple_hash(c, UInt64(0))
-    while isalphanumeric(peekchar(l))
-        c = readchar(l)
+    while isalphanumeric(peekchar(tokenizer))
+        c = readchar(tokenizer)
         hashed_identifier = simple_hash(c, hashed_identifier)
         n += 1
     end
@@ -396,7 +380,7 @@ function tokenize_identifier(l::Tokenizer, c::Char)
         k = get(kw_hash, hashed_identifier, K"Identifier")
     end
     
-    return emit(l, k)
+    return emit(tokenizer, k)
 end
 
 end  # end module

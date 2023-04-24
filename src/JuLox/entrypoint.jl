@@ -35,7 +35,7 @@ function run_just_tokenize(line::String)
     result = nothing
     exit_code = 0
     # TODO: Adapt error reporting to new ParseStream approach.
-    result = collect(Tokenize.tokenize(line))
+    result = collect(Tokenize.Tokenizer(line))
     if !isnothing(result)
         # For now, just print the tokens.
         println("Location   Kind                     Text                ")
