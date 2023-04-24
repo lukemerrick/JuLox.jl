@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox: @K_str, kind, Tokenize, Parse, Interpret
+using Fractal.JuLox: @K_str, kind, Tokenize, Parse, BuildLosslessTree #, Interpret
 
 # TODO: Restrict typing of `result`.
 struct RunResult
@@ -55,32 +55,66 @@ function run_just_tokenize(line::String)
     return exit_code
 end
 
-function run_parse(line::String)
-    exit_code = 0
-    tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-    println("Lossless Syntax Tree")
-    show(stdout, tree.green_node, line)
-    println()
-    println("Lossy Syntax Tree")
-    show(stdout, tree)
-    # println("Next byte: $(next_byte)")
-    return exit_code
+function run(line::String)
+    result = Parse.parse_lox(line)
+    tree = BuildLosslessTree.build_tree(result)
+
+    if !isempty(result.tokens)
+        # Print tokens.
+        println("Tokens")
+        println("Location   Kind                     Text                ")
+        println("--------------------------------------------------------")
+        for t in result.tokens
+            print(rpad(string(Tokenize.startbyte(t), "-", Tokenize.endbyte(t)), 11, " "))
+            print(rpad(kind(t), 25, " "))
+            print(rpad("$(repr(Tokenize.text(t)))", 20, " "))
+            println()
+        end
+
+        println()
+
+        # Print events.
+        println("Events")
+        for event in result.events
+            println(event)
+        end
+
+        println()
+
+        # Print lossless tree.
+        println("Lossless Syntax Tree")
+        println(tree)
+    end
+
+    return 0
 end
 
+# function run_parse(line::String)
+#     exit_code = 0
+#     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
+#     println("Lossless Syntax Tree")
+#     show(stdout, tree.green_node, line)
+#     println()
+#     println("Lossy Syntax Tree")
+#     show(stdout, tree)
+#     # println("Next byte: $(next_byte)")
+#     return exit_code
+# end
 
-function run(environment::Interpret.Environment, line::String)
-    println("Tokens")
-    run_just_tokenize(line)
-    println()
-    run_parse(line)
-    println()
-    tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-    println("Interpreter")
-    println("-----------")
-    had_error = Interpret.interpret(environment, tree, line)
-    exit_code = had_error ? 70 : 0
-    return exit_code
-end
+
+# function run(environment::Interpret.Environment, line::String)
+#     println("Tokens")
+#     run_just_tokenize(line)
+#     println()
+#     run_parse(line)
+#     println()
+#     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
+#     println("Interpreter")
+#     println("-----------")
+#     had_error = Interpret.interpret(environment, tree, line)
+#     exit_code = had_error ? 70 : 0
+#     return exit_code
+# end
 
 """Create a super lightweight REPL experience."""
 function run_prompt()::Integer
@@ -102,8 +136,8 @@ function run_prompt()::Integer
         "\n\n"
     )
 
-    # Initialize interpreter global environment.
-    environment = Interpret.Environment()
+    # # Initialize interpreter global environment.
+    # environment = Interpret.Environment()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -131,10 +165,12 @@ function run_prompt()::Integer
         end
         if line != "\n"
             try
-                run(environment, line)
+                run(line)
+                # run(environment, line)
             catch e
-                !isa(e, Parse.ParseError) && rethrow()
-                showerror(stdout, e)
+                # !isa(e, Parse.ParseError) && rethrow()
+                # showerror(stdout, e)
+                rethrow()
             end
         end
         println()  # Add an extra newline after the result.
@@ -143,8 +179,9 @@ function run_prompt()::Integer
 end
 
 function run_file(filepath::String)::Integer
-    environment = Interpret.Environment()
-    exit_code = run(environment, read(filepath, String))
+    # environment = Interpret.Environment()
+    # exit_code = run(environment, read(filepath, String))
+    exit_code = run(read(filepath, String))
     return exit_code
 end
 end  # module

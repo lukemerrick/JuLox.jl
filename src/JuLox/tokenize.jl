@@ -1,6 +1,6 @@
 module Tokenize
 using Fractal: JuLox
-using Fractal.JuLox: @K_str, kind, is_literal, is_error
+using Fractal.JuLox: @K_str, kind, is_literal, is_error, startbyte, endbyte
 
 # Create EOF sentinel value.
 const EOF_CHAR = typemax(Char)
@@ -62,8 +62,8 @@ end
 Token() = Token(K"error", 0, 0, "")
 
 JuLox.kind(t::Token) = t._kind
-startbyte(t::Token) = t._startbyte
-endbyte(t::Token) = t._endbyte
+JuLox.startbyte(t::Token) = t._startbyte
+JuLox.endbyte(t::Token) = t._endbyte
 text(t::Token) = t._text
 JuLox.span(token::Token) = endbyte(token) - startbyte(token) + 1
 
