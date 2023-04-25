@@ -1,6 +1,6 @@
 module Tokenize
-using Fractal: JuLox
-using Fractal.JuLox: @K_str, kind, is_literal, is_error, startbyte, endbyte
+using Fractal.JuLox: JuLox, SyntaxKinds
+using Fractal.JuLox.SyntaxKinds: @K_str
 
 # Create EOF sentinel value.
 const EOF_CHAR = typemax(Char)
@@ -54,22 +54,22 @@ const kw_hash = Dict(
 # Token.
 
 struct Token
-    _kind::JuLox.Kind
+    _kind::SyntaxKinds.Kind
     _startbyte::Int # The byte where the token start in the buffer
     _endbyte::Int # The byte where the token ended in the buffer
     _text::String
 end
 Token() = Token(K"error", 0, 0, "")
 
-JuLox.kind(t::Token) = t._kind
+SyntaxKinds.kind(t::Token) = t._kind
 JuLox.startbyte(t::Token) = t._startbyte
 JuLox.endbyte(t::Token) = t._endbyte
 text(t::Token) = t._text
-JuLox.span(token::Token) = endbyte(token) - startbyte(token) + 1
+JuLox.span(token::Token) = JuLox.endbyte(token) - JuLox.startbyte(token) + 1
 
 function Base.show(io::IO, t::Token)
-    print(io, rpad(string(startbyte(t), "-", endbyte(t)), 11, " "))
-    print(io, rpad(kind(t), 15, " "))
+    print(io, rpad(string(JuLox.startbyte(t), "-", JuLox.endbyte(t)), 11, " "))
+    print(io, rpad(SyntaxKinds.kind(t), 15, " "))
 end
 
 const EMPTY_TOKEN = Token()
@@ -150,7 +150,7 @@ Base.eltype(::Type{<:Tokenizer}) = Token
 function Base.iterate(tokenizer::Tokenizer, isdone::Any)
     isdone && return nothing
     t = next_token(tokenizer)
-    isdone = kind(t) == K"EndMarker"
+    isdone = SyntaxKinds.kind(t) == K"EndMarker"
     return t, isdone
 end
 Base.iterate(tokenizer::Tokenizer) = iterate(tokenizer, false)
@@ -194,7 +194,7 @@ function start_token!(tokenizer::Tokenizer)
     tokenizer._token_startpos = position(tokenizer)
 end
 
-function emit(tokenizer::Tokenizer, kind::JuLox.Kind)
+function emit(tokenizer::Tokenizer, kind::SyntaxKinds.Kind)
     startbyte = startpos(tokenizer)
     endbyte = position(tokenizer) - 1
     text = String(tokenizer._token_in_progress)
@@ -202,8 +202,8 @@ function emit(tokenizer::Tokenizer, kind::JuLox.Kind)
 end
 
 # Passthrough with @assert for convenience.
-function emit_error(tokenizer::Tokenizer, err_kind::JuLox.Kind)
-    @assert is_error(err_kind)
+function emit_error(tokenizer::Tokenizer, err_kind::SyntaxKinds.Kind)
+    @assert SyntaxKinds.is_error(err_kind)
     return emit(tokenizer, err_kind)
 end
 

@@ -2,11 +2,10 @@ module JuLox
 
 # Some functions that have methods defined in various places.
 function span end
-function kind end
 function startbyte end
 function endbyte end
 
-include("./kinds.jl")
+include("./syntax_kinds.jl")
 include("./tokenize.jl")
 # include("./parse/parse.jl")
 # include("./interpret.jl")

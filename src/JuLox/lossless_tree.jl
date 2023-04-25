@@ -2,26 +2,27 @@
 # Builds an untyped lossless source tree, aka "green tree" in Roslyn parlance.
 
 module BuildLosslessTree
-using Fractal.JuLox: JuLox, Parse, Tokenize, Kind, kind, startbyte, endbyte
+using Fractal.JuLox: JuLox, SyntaxKinds, Parse, Tokenize
 
 LosslessLeafNode = Tokenize.Token  # alias
 
 struct LosslessInnerNode
-    _kind::Kind
+    _kind::SyntaxKinds.Kind
     _children::Vector{Union{LosslessInnerNode,LosslessLeafNode}}
     _startbyte::Integer
     _endbyte::Integer
 
-    function LosslessInnerNode(kind::Kind, children::Vector{Union{LosslessInnerNode,LosslessLeafNode}})
+    function LosslessInnerNode(kind::SyntaxKinds.Kind, children::Vector{Union{LosslessInnerNode,LosslessLeafNode}})
         startbyte = typemax(Int)
         endbyte = typemin(Int)
         for c in children
+            # NOTE: We cannot define JuLox.startbyte(node::LosslessInnerNode) before here :(
             if c isa LosslessInnerNode
                 child_start = c._startbyte
                 child_end = c._endbyte
             else
-                child_start = Tokenize.startbyte(c)
-                child_end = Tokenize.endbyte(c)
+                child_start = JuLox.startbyte(c)
+                child_end = JuLox.endbyte(c)
             end
             startbyte = min(startbyte, child_start)
             endbyte = max(endbyte, child_end)
@@ -36,7 +37,7 @@ JuLox.endbyte(node::LosslessInnerNode) = node._endbyte
 
 LosslessNode = Union{LosslessInnerNode,LosslessLeafNode}
 
-JuLox.kind(node::LosslessInnerNode) = node._kind
+SyntaxKinds.kind(node::LosslessInnerNode) = node._kind
 children(node::LosslessInnerNode) = node._children
 haschildren(node::LosslessInnerNode) = !(children(node) isa Tuple{})
 haschildren(node::LosslessLeafNode) = false
@@ -73,7 +74,7 @@ function build_tree(parse_result::Parse.ParseResult)
                 k -= 1
             end
             children = LosslessNode[stack[n].node for n = k:length(stack)]
-            node = LosslessInnerNode(kind(event), children)
+            node = LosslessInnerNode(SyntaxKinds.kind(event), children)
             resize!(stack, k - 1)
             push!(stack, (first_token=event.first_token, node=node))
             event_idx += 1
@@ -87,9 +88,9 @@ function build_tree(parse_result::Parse.ParseResult)
 end
 
 # Pretty printing
-Base.summary(io::IO, node::LosslessNode) = show(io, kind(node))
+Base.summary(io::IO, node::LosslessNode) = show(io, SyntaxKinds.kind(node))
 function _show_node(io, node, indent)
-    posstr = "$(lpad(startbyte(node), 6)):$(rpad(endbyte(node), 6)) │"
+    posstr = "$(lpad(JuLox.startbyte(node), 6)):$(rpad(JuLox.endbyte(node), 6)) │"
     is_leaf = node isa LosslessLeafNode
     if is_leaf
         line = string(posstr, indent, summary(node))

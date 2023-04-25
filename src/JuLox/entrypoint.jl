@@ -1,5 +1,6 @@
 module Entrypoint
-using Fractal.JuLox: @K_str, kind, Tokenize, Parse, BuildLosslessTree #, Interpret
+using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, BuildLosslessTree #, Interpret
+using Fractal.JuLox.SyntaxKinds: @K_str
 
 # TODO: Restrict typing of `result`.
 struct RunResult
@@ -42,8 +43,8 @@ function run_just_tokenize(line::String)
         println("--------------------------------------------------------")
         for t in result
             print(rpad(string(Tokenize.startbyte(t), "-", Tokenize.endbyte(t)), 11, " "))
-            print(rpad(kind(t), 25, " "))
-            if kind(t) != K"EndMarker"
+            print(rpad(SyntaxKinds.kind(t), 25, " "))
+            if SyntaxKinds.kind(t) != K"EndMarker"
                 text = line[Tokenize.startbyte(t): Tokenize.endbyte(t)]
                 print(rpad("$(repr(text))", 20, " "))
             end
@@ -65,8 +66,8 @@ function run(line::String)
         println("Location   Kind                     Text                ")
         println("--------------------------------------------------------")
         for t in result.tokens
-            print(rpad(string(Tokenize.startbyte(t), "-", Tokenize.endbyte(t)), 11, " "))
-            print(rpad(kind(t), 25, " "))
+            print(rpad(string(JuLox.startbyte(t), "-", JuLox.endbyte(t)), 11, " "))
+            print(rpad(SyntaxKinds.kind(t), 25, " "))
             print(rpad("$(repr(Tokenize.text(t)))", 20, " "))
             println()
         end

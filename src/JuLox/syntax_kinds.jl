@@ -1,5 +1,7 @@
 """Adapted from JuliaSyntax.jl on 2023.04.05"""
 
+module SyntaxKinds
+
 # Definition of Kind type - mapping from token string identifiers to
 # enumeration values as used in @K_str
 const _kind_names =
@@ -118,8 +120,7 @@ primitive type Kind 16 end
 # the K_str macro to self-name these kinds with their literal representation,
 # rather than needing to invent a new name for each.
 
-let kind_int_type = :UInt16,
-    max_kind_int = length(_kind_names)-1
+let kind_int_type = :UInt16, max_kind_int = length(_kind_names)-1
 
     @eval begin
         function Kind(x::Integer)
@@ -248,20 +249,6 @@ is_statement(k) = is_statement(kind(k))
 # is_operator(k::Kind) = K"BEGIN_OPS" < k < K"END_OPS"
 # is_operator(k) = is_operator(kind(k))
 
-# # Predicates for operator precedence
-# is_prec_assignment(x)  = K"BEGIN_ASSIGNMENTS" < kind(x) < K"END_ASSIGNMENTS"
-# is_prec_pair(x)        = K"BEGIN_PAIRARROW"   < kind(x) < K"END_PAIRARROW"
-# is_prec_conditional(x) = K"BEGIN_CONDITIONAL" < kind(x) < K"END_CONDITIONAL"
-# is_prec_lazy_or(x)     = K"BEGIN_LAZYOR"      < kind(x) < K"END_LAZYOR"
-# is_prec_lazy_and(x)    = K"BEGIN_LAZYAND"     < kind(x) < K"END_LAZYAND"
-# is_prec_comparison(x)  = K"BEGIN_COMPARISON"  < kind(x) < K"END_COMPARISON"
-# is_prec_plus(x)        = K"BEGIN_PLUS"        < kind(x) < K"END_PLUS"
-# is_prec_times(x)       = K"BEGIN_TIMES"       < kind(x) < K"END_TIMES"
-# is_prec_rational(x)    = K"BEGIN_RATIONAL"    < kind(x) < K"END_RATIONAL"
-# is_prec_decl(x)        = K"BEGIN_DECL"        < kind(x) < K"END_DECL"
-# is_prec_where(x)       = K"BEGIN_WHERE"       < kind(x) < K"END_WHERE"
-# is_syntax_kind(x)      = K"BEGIN_SYNTAX_KINDS" < kind(x) < K"END_SYNTAX_KINDS"
-
 """
 Return true if `x` has whitespace, comment, or quote mark kind.
 """
@@ -269,3 +256,5 @@ function is_whitespace(x)
     k = kind(x)
     return k == K"Whitespace" || k == K"NewlineWs" || k == K"Comment" || k == K"\""
 end
+
+end  # module SyntaxKinds

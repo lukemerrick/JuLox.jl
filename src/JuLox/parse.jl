@@ -5,9 +5,8 @@
 # (or lossy tree creation, if trivia tokens are filtered!)
 
 module Parse
-using Fractal: JuLox
-using Fractal.JuLox.Tokenize: Tokenize, Token, startbyte, endbyte
-using Fractal.JuLox: Kind, @K_str, @KSet_str, is_whitespace, is_error, kind, span
+using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize
+using Fractal.JuLox.SyntaxKinds: @K_str, @KSet_str
 
 
 #-------------------------------------------------------------------------------
@@ -22,13 +21,13 @@ end
 Events represent syntax that in a tree are stored as nodes.
 """
 struct Event
-    kind::Kind
+    kind::SyntaxKinds.Kind
     first_token::Int
     last_token::Int
     error_message::String
 end
 
-JuLox.kind(event::Event) = event.kind
+SyntaxKinds.kind(event::Event) = event.kind
 error_message(event::Event) = event.error_message
 
 """
@@ -42,7 +41,7 @@ mutable struct Parser
     _lookahead_index::Int
     # The Parser builds up a sequence of tokens.
     # Some of these tokens may not yet be parsed but are a lookahead buffer.
-    _tokens::Vector{Token}
+    _tokens::Vector{Tokenize.Token}
     # Parser output as an ordered sequence of ranges, parent nodes after children.
     _events::Vector{Event}
     # Counter for number of peek()s we've done without making progress via a bump().
@@ -50,7 +49,7 @@ mutable struct Parser
     _peek_count::Int
 
     function Parser(source::AbstractString)
-        new(Tokenize.Tokenizer(source), 0, 1, Vector{Token}(), Vector{Event}(), 0)
+        new(Tokenize.Tokenizer(source), 0, 1, Vector{Tokenize.Token}(), Vector{Event}(), 0)
     end
 end
 
@@ -62,25 +61,18 @@ events(parser::Parser) = parser._events
 # Defining `peek()` and related functions.
 
 # Buffer around 100 tokens.
-function _buffer_lookahead_tokens(lexer::Tokenize.Tokenizer, tokens::Vector{Token})
+function _buffer_lookahead_tokens(lexer::Tokenize.Tokenizer, tokens::Vector{Tokenize.Token})
     token_count = 0
     while true
         raw = Tokenize.next_token(lexer)
-        k = kind(raw)
+        k = SyntaxKinds.kind(raw)
         push!(tokens, raw)
         token_count += 1
-        if (k == K"EndMarker") || (!is_whitespace(k) && token_count > 100)
+        if (k == K"EndMarker") || (!SyntaxKinds.is_whitespace(k) && token_count > 100)
             break
         end
     end
 end
-
-# Return the index of the next byte of the input.
-function _next_byte(stream::Parser)
-    endbyte(stream._tokens[stream._finished_token_index]) + 1
-end
-
-last_byte(stream::Parser) = _next_byte(stream) - 1
 
 # Find the index of the next nontrivia token.
 function _lookahead_index(stream::Parser)
@@ -89,7 +81,7 @@ function _lookahead_index(stream::Parser)
         if i > length(stream._tokens)
             _buffer_lookahead_tokens(stream._tokenizer, stream._tokens)
         end
-        !is_whitespace(stream._tokens[i]) && return i
+        !SyntaxKinds.is_whitespace(stream._tokens[i]) && return i
         i += 1
     end
 end
@@ -103,7 +95,7 @@ end
 Look ahead in the stream, returning the token kind. Comments and whitespace are skipped
 automatically.
 """
-Base.peek(stream::Parser) = kind(peek_token(stream))
+Base.peek(stream::Parser) = SyntaxKinds.kind(peek_token(stream))
 
 """
 Like `peek`, but return the full token information rather than just the kind.
@@ -120,6 +112,13 @@ end
 function current_token(stream::Parser)
     return stream._tokens[stream._finished_token_index]
 end
+
+# Return the index of the next byte of the input.
+function last_byte(stream::Parser)
+    JuLox.endbyte(current_token(stream))
+end
+
+_next_byte(stream::Parser) = _next_byte(stream) + 1
 
 
 #-------------------------------------------------------------------------------
@@ -160,7 +159,7 @@ Emit a new Event into the output which covers tokens from `mark` to
 the end of the most recent token which was `bump()`'ed. The starting `mark`
 should be a previous return value of `position()`.
 """
-function emit(stream::Parser, mark::Position, kind::Kind, error_message::String="")
+function emit(stream::Parser, mark::Position, kind::SyntaxKinds.Kind, error_message::String="")
     first_token = mark.token_index + 1
     event = Event(kind, first_token, stream._finished_token_index, error_message)
     push!(stream._events, event)
@@ -170,7 +169,7 @@ end
 #-------------------------------------------------------------------------------
 # The actual logic for recursive descent parsing.
 
-function consume(parser::Parser, expected::Kind)
+function consume(parser::Parser, expected::SyntaxKinds.Kind)
     if peek(parser) == expected
         bump(parser)
         return true
@@ -249,7 +248,7 @@ function parse_block(parser::Parser)
     mark = position(parser)
 
     # Handle the "{"
-    @assert kind(peek(parser)) == K"{"
+    @assert SyntaxKinds.kind(peek(parser)) == K"{"
     bump(parser)
 
     # Parse a list of statements.
@@ -265,7 +264,7 @@ function parse_print_statement(parser::Parser)
     mark = position(parser)
 
     # Handle the "print".
-    @assert kind(peek(parser)) == K"print"
+    @assert SyntaxKinds.kind(peek(parser)) == K"print"
     bump(parser)
 
     # Parse the expression.
@@ -300,10 +299,10 @@ function parse_assignment(parser::Parser)
         # Look back to left side of assignment to ensure it's an identifier.
         # TODO: Ensure this isn't too hacky compared to the JLox approach.
         left_side_tokens = [
-            t for t in parser._tokens[mark.token_index+1:mark2.token_index] if !is_whitespace(kind(t))
+            t for t in parser._tokens[mark.token_index+1:mark2.token_index] if !SyntaxKinds.is_whitespace(SyntaxKinds.kind(t))
         ]
-        @assert kind(left_side_tokens[end]) == K"="
-        if length(left_side_tokens) != 2 || kind(left_side_tokens[1]) != K"Identifier"
+        @assert SyntaxKinds.kind(left_side_tokens[end]) == K"="
+        if length(left_side_tokens) != 2 || SyntaxKinds.kind(left_side_tokens[1]) != K"Identifier"
             emit(parser, mark, K"error", "Invalid assignment target.")
         else
             # Emit the assignment.
@@ -312,7 +311,7 @@ function parse_assignment(parser::Parser)
     end
 end
 
-function parse_infix_operator(parser::Parser, op_kset::Tuple{Vararg{Kind}}, left_right_parse_fn::Function)
+function parse_infix_operator(parser::Parser, op_kset::Tuple{Vararg{SyntaxKinds.Kind}}, left_right_parse_fn::Function)
     mark = position(parser)
 
     # Parse the left operand.
@@ -350,7 +349,7 @@ function parse_unary(parser::Parser)
 end
 
 function parse_primary(parser::Parser)
-    is_error(peek(parser)) && bump(parser)  # Pass through errors.
+    SyntaxKinds.is_error(peek(parser)) && bump(parser)  # Pass through errors.
     mark = position(parser)
     k = peek(parser)
     if k ∈ KSet"false true nil Number String Identifier"
@@ -375,7 +374,7 @@ end
 # The (very small) public API.
 
 struct ParseResult
-    tokens::Vector{Token}
+    tokens::Vector{Tokenize.Token}
     events::Vector{Event}
 end
 
