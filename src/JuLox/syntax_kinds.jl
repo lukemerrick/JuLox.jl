@@ -22,9 +22,17 @@ const _kind_names =
         # Tokenization errors
         "ErrorUnknownCharacter"
         "ErrorUnterminatedString"
+        # Parsing errors
+        "ErrorStatementMissingSemicolon"
+        "ErrorBlockMissingClosingBrace"
+        "ErrorGroupMissingClosingParenthesis"
+        "ErrorInvalidAssigmentTarget"
+        "ErrorExpectedExpression"
         # Generic error
         "error"
     "END_ERRORS"
+
+    "UnparsedErrorRecovery"
 
     "BEGIN_SINGLE_CHARACTER_TOKENS"
         "("
@@ -229,7 +237,17 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorUnknownCharacter" => "unknown character",
     K"ErrorUnterminatedString" => "unterminated string",
     K"error" => "unknown error token",
+    K"ErrorStatementMissingSemicolon" => "expected `;` to end the statement",
+    K"ErrorBlockMissingClosingBrace" => "expected closing `}`",
+    K"ErrorGroupMissingClosingParenthesis" => "expected closing `)`",
+    K"ErrorInvalidAssigmentTarget" => "invalid assignment target",
+    K"ErrorExpectedExpression" => "expected expression",
 )
+
+function error_description(error_kind::Kind)
+    @assert is_error(error_kind)
+    return _token_error_descriptions[error_kind]
+end
 
 #-------------------------------------------------------------------------------
 # Predicates

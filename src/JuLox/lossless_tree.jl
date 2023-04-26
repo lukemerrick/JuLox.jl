@@ -11,25 +11,6 @@ struct LosslessInnerNode
     _children::Vector{Union{LosslessInnerNode,LosslessLeafNode}}
     _startbyte::Integer
     _endbyte::Integer
-
-    function LosslessInnerNode(kind::SyntaxKinds.Kind, children::Vector{Union{LosslessInnerNode,LosslessLeafNode}})
-        startbyte = typemax(Int)
-        endbyte = typemin(Int)
-        for c in children
-            # NOTE: We cannot define JuLox.startbyte(node::LosslessInnerNode) before here :(
-            if c isa LosslessInnerNode
-                child_start = c._startbyte
-                child_end = c._endbyte
-            else
-                child_start = JuLox.startbyte(c)
-                child_end = JuLox.endbyte(c)
-            end
-            startbyte = min(startbyte, child_start)
-            endbyte = max(endbyte, child_end)
-        end
-        @assert startbyte < typemax(Int) && endbyte > typemin(Int)
-        return new(kind, children, startbyte, endbyte)
-    end
 end
 
 JuLox.startbyte(node::LosslessInnerNode) = node._startbyte
@@ -41,6 +22,12 @@ SyntaxKinds.kind(node::LosslessInnerNode) = node._kind
 children(node::LosslessInnerNode) = node._children
 haschildren(node::LosslessInnerNode) = !(children(node) isa Tuple{})
 haschildren(node::LosslessLeafNode) = false
+
+function event_start_end(event::Parse.Event, tokens::Vector{Tokenize.Token})
+    start_token = event.first_token <= length(tokens) ? tokens[event.first_token] : last(tokens)
+    end_token = event.last_token <= length(tokens) ? tokens[event.last_token] : last(tokens)
+    return JuLox.startbyte(start_token), JuLox.endbyte(end_token)
+end
 
 """
     build_tree(parse_result::Parse.ParseResult)
@@ -56,16 +43,18 @@ function build_tree(parse_result::Parse.ParseResult)
     stack = Vector{NamedTuple{(:first_token, :node),Tuple{Int,Union{LosslessInnerNode,LosslessLeafNode}}}}()
     tokens = parse_result.tokens
     events = parse_result.events
+    token_idx = firstindex(tokens)
     event_idx = firstindex(events)
     while event_idx <= lastindex(events)
         # Add all tokens used by the next internal node to the stack.
-        stacked_event = events[event_idx]
-        for token_idx in stacked_event.first_token:stacked_event.last_token
+        last_stacked_token = events[event_idx].last_token
+        for token_idx in token_idx:last_stacked_token
             push!(stack, (first_token=token_idx, node=tokens[token_idx]))
         end
+        token_idx = last_stacked_token + 1
         # Process internal nodes which end at the current position.
         for event in events[event_idx:end]
-            if event.last_token != stacked_event.last_token
+            if event.last_token != last_stacked_token
                 break
             end
             # Collect children from the stack for this internal node.
@@ -74,7 +63,8 @@ function build_tree(parse_result::Parse.ParseResult)
                 k -= 1
             end
             children = LosslessNode[stack[n].node for n = k:length(stack)]
-            node = LosslessInnerNode(SyntaxKinds.kind(event), children)
+            startbyte, endbyte = event_start_end(event, tokens)
+            node = LosslessInnerNode(SyntaxKinds.kind(event), children, startbyte, endbyte)
             resize!(stack, k - 1)
             push!(stack, (first_token=event.first_token, node=node))
             event_idx += 1
@@ -88,13 +78,22 @@ function build_tree(parse_result::Parse.ParseResult)
 end
 
 # Pretty printing
-Base.summary(io::IO, node::LosslessNode) = show(io, SyntaxKinds.kind(node))
+function Base.summary(io::IO, node::LosslessNode)
+    k = SyntaxKinds.kind(node)
+    res = convert(String, k)
+    if SyntaxKinds.is_error(k)
+        res = "$(res) - $(SyntaxKinds.error_description(k))"
+    end
+    print(io, res)
+end
 function _show_node(io, node, indent)
     posstr = "$(lpad(JuLox.startbyte(node), 6)):$(rpad(JuLox.endbyte(node), 6)) │"
     is_leaf = node isa LosslessLeafNode
     if is_leaf
         line = string(posstr, indent, summary(node))
-        line = string(rpad(line, 43), ' ', repr(Tokenize.text(node)))
+        if JuLox.span(node) > 0
+            line = string(rpad(line, 43), ' ', repr(Tokenize.text(node)))
+        end
     else
         line = string(posstr, indent, '[', summary(node), ']')
     end

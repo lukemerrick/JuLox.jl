@@ -56,14 +56,13 @@ const kw_hash = Dict(
 struct Token
     _kind::SyntaxKinds.Kind
     _startbyte::Int # The byte where the token start in the buffer
-    _endbyte::Int # The byte where the token ended in the buffer
     _text::String
 end
-Token() = Token(K"error", 0, 0, "")
+Token() = Token(K"error", 0, "")
 
 SyntaxKinds.kind(t::Token) = t._kind
 JuLox.startbyte(t::Token) = t._startbyte
-JuLox.endbyte(t::Token) = t._endbyte
+JuLox.endbyte(t::Token) = t._startbyte + length(t._text) - 1
 text(t::Token) = t._text
 JuLox.span(token::Token) = JuLox.endbyte(token) - JuLox.startbyte(token) + 1
 
@@ -196,9 +195,8 @@ end
 
 function emit(tokenizer::Tokenizer, kind::SyntaxKinds.Kind)
     startbyte = startpos(tokenizer)
-    endbyte = position(tokenizer) - 1
     text = String(tokenizer._token_in_progress)
-    return Token(kind, startbyte, endbyte, text)
+    return Token(kind, startbyte, text)
 end
 
 # Passthrough with @assert for convenience.

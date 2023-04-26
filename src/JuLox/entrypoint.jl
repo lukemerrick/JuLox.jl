@@ -22,40 +22,6 @@ function _read_line_or_eof()::Union{String,Nothing}
     end
 end
 
-# TODO: Adapt error reporting to new ParseStream approach.
-# # Pretty error printing when something in the users code is wrong.
-# function report_error(error::SyntaxError)
-#     error_name = error |> typeof |> string |> x -> split(x, '.')[end]
-#     println(
-#         "[line $(error.line) position $(error.position)] " *
-#         "$(error_name): $(error.message)"
-#     )
-# end
-
-function run_just_tokenize(line::String)
-    result = nothing
-    exit_code = 0
-    # TODO: Adapt error reporting to new ParseStream approach.
-    result = collect(Tokenize.Tokenizer(line))
-    if !isnothing(result)
-        # For now, just print the tokens.
-        println("Location   Kind                     Text                ")
-        println("--------------------------------------------------------")
-        for t in result
-            print(rpad(string(Tokenize.startbyte(t), "-", Tokenize.endbyte(t)), 11, " "))
-            print(rpad(SyntaxKinds.kind(t), 25, " "))
-            if SyntaxKinds.kind(t) != K"EndMarker"
-                text = line[Tokenize.startbyte(t): Tokenize.endbyte(t)]
-                print(rpad("$(repr(text))", 20, " "))
-            end
-            println()
-        end
-    else
-        println()
-    end
-    return exit_code
-end
-
 function run(line::String)
     result = Parse.parse_lox(line)
     tree = BuildLosslessTree.build_tree(result)
@@ -67,7 +33,7 @@ function run(line::String)
         println("--------------------------------------------------------")
         for t in result.tokens
             print(rpad(string(JuLox.startbyte(t), "-", JuLox.endbyte(t)), 11, " "))
-            print(rpad(SyntaxKinds.kind(t), 25, " "))
+            print(rpad(SyntaxKinds.kind(t), 35, " "))
             print(rpad("$(repr(Tokenize.text(t)))", 20, " "))
             println()
         end

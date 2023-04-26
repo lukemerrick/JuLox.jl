@@ -24,11 +24,9 @@ struct Event
     kind::SyntaxKinds.Kind
     first_token::Int
     last_token::Int
-    error_message::String
 end
 
 SyntaxKinds.kind(event::Event) = event.kind
-error_message(event::Event) = event.error_message
 
 """
 Internal state used in parsing a stream of Tokens. Use via `parse(source::AbstractString)`.
@@ -36,25 +34,36 @@ Internal state used in parsing a stream of Tokens. Use via `parse(source::Abstra
 mutable struct Parser
     # Parsing builds on and consumes a Tokenizer.
     _tokenizer::Tokenize.Tokenizer
-    # Internal position tracking for parsing.
-    _finished_token_index::Int
-    _lookahead_index::Int
-    # The Parser builds up a sequence of tokens.
-    # Some of these tokens may not yet be parsed but are a lookahead buffer.
-    _tokens::Vector{Tokenize.Token}
+    # The Parser builds up a sequence of parsed tokens.
+    _parsed_tokens::Vector{Tokenize.Token}
     # Parser output as an ordered sequence of ranges, parent nodes after children.
     _events::Vector{Event}
+    # Token lookahead buffer.
+    _lookahead_index::Int
+    _lookahead_tokens::Vector{Tokenize.Token}
     # Counter for number of peek()s we've done without making progress via a bump().
     # Used to avoid parsing freezing if we accidentally hit infinite recursion/looping.
     _peek_count::Int
 
     function Parser(source::AbstractString)
-        new(Tokenize.Tokenizer(source), 0, 1, Vector{Tokenize.Token}(), Vector{Event}(), 0)
+        new(
+            Tokenize.Tokenizer(source),
+            Vector{Tokenize.Token}(),
+            Vector{Event}(),
+            1,
+            Vector{Tokenize.Token}(),
+            0,
+        )
     end
 end
 
-tokens(parser::Parser) = parser._tokens[1:parser._finished_token_index]
+tokens(parser::Parser) = parser._parsed_tokens
 events(parser::Parser) = parser._events
+
+# Get position of last item emitted into the output stream
+function Base.position(parser::Parser)
+    Position(lastindex(parser._parsed_tokens), lastindex(parser._events))
+end
 
 
 #-------------------------------------------------------------------------------
@@ -75,112 +84,124 @@ function _buffer_lookahead_tokens(lexer::Tokenize.Tokenizer, tokens::Vector{Toke
 end
 
 # Find the index of the next nontrivia token.
-function _lookahead_index(stream::Parser)
-    i = stream._lookahead_index
+function _next_nontrivia_index(parser::Parser)
+    i = parser._lookahead_index
     while true
-        if i > length(stream._tokens)
-            _buffer_lookahead_tokens(stream._tokenizer, stream._tokens)
+        if i > length(parser._lookahead_tokens)
+            _buffer_lookahead_tokens(parser._tokenizer, parser._lookahead_tokens)
         end
-        !SyntaxKinds.is_whitespace(stream._tokens[i]) && return i
+        !SyntaxKinds.is_whitespace(parser._lookahead_tokens[i]) && return i
         i += 1
     end
 end
 
-@noinline function _parser_stuck_error(stream::Parser)
+@noinline function _parser_stuck_error(parser::Parser)
     # Optimization: emit unlikely errors in a separate function.
-    error("The parser seems stuck at byte $(_next_byte(stream))")
+    error("The parser seems stuck at byte $(_next_byte(parser))")
 end
 
 """
-Look ahead in the stream, returning the token kind. Comments and whitespace are skipped
-automatically.
+Look ahead in the token stream, returning the token kind. Comments and whitespace are
+skipped automatically.
 """
-Base.peek(stream::Parser) = SyntaxKinds.kind(peek_token(stream))
+Base.peek(parser::Parser) = SyntaxKinds.kind(peek_token(parser))
 
 """
 Like `peek`, but return the full token information rather than just the kind.
 """
-function peek_token(stream::Parser)
-    stream._peek_count += 1
-    if stream._peek_count > 100_000
-        _parser_stuck_error(stream)
+function peek_token(parser::Parser)
+    parser._peek_count += 1
+    if parser._peek_count > 100_000
+        _parser_stuck_error(parser)
     end
-    i = _lookahead_index(stream)
-    return @inbounds stream._tokens[i]
+    i = _next_nontrivia_index(parser)
+    return @inbounds parser._lookahead_tokens[i]
 end
 
-function current_token(stream::Parser)
-    return stream._tokens[stream._finished_token_index]
+function current_token(parser::Parser)
+    return last(parser._parsed_tokens)
 end
 
 # Return the index of the next byte of the input.
-function last_byte(stream::Parser)
-    JuLox.endbyte(current_token(stream))
+function last_byte(parser::Parser)
+    t = current_token(parser)
+    # Handle edge-case of zero-length tokens.
+    max(JuLox.startbyte(t), JuLox.endbyte(t))
 end
 
-_next_byte(stream::Parser) = _next_byte(stream) + 1
+_next_byte(parser::Parser) = _next_byte(parser) + 1
 
 
 #-------------------------------------------------------------------------------
 # Defining `bump()`.
 
 # Bump up until the `n`th token.
-function _bump_until_n(stream::Parser, n::Integer)
-    if n < stream._lookahead_index
+function _bump_until_n(parser::Parser, n::Integer)
+    if n < parser._lookahead_index
         return nothing
     end
-    stream._finished_token_index = n
-    stream._lookahead_index = n + 1
+    append!(parser._parsed_tokens, parser._lookahead_tokens[parser._lookahead_index:n])
+    parser._lookahead_index = n + 1
     # Defuse the time bomb.
-    stream._peek_count = 0
+    parser._peek_count = 0
     return nothing
 end
 
 """
-Advance the stream's token position so that the next nontrivia token is finalized.
+Advance the token position so that the next nontrivia token is finalized.
 """
-function bump(stream::Parser)
-    _bump_until_n(stream, _lookahead_index(stream))
-    return position(stream)
+function bump(parser::Parser)
+    _bump_until_n(parser, _next_nontrivia_index(parser))
+    return position(parser)
+end
+
+
+"""
+Bump into the outputs a zero-length error token created by the parsing process.
+
+This is useful when a specific token is expected but missing, while error-kind events
+are useful for other kinds of invalid syntax (like assinging values to a non-variable).
+"""
+function bump_error(parser::Parser, err_kind::SyntaxKinds.Kind)
+    @assert SyntaxKinds.is_error(err_kind)
+    err_token = Tokenize.Token(err_kind, last_byte(parser), "")
+    push!(parser._parsed_tokens, err_token)
 end
 
 #-------------------------------------------------------------------------------
 # Defining `emit()`.
 
-# Get position of last item emitted into the output stream
-function Base.position(stream::Parser)
-    Position(stream._finished_token_index, lastindex(stream._events))
-end
-
 """
-    emit(stream, mark, kind, [error_message=""])
+    emit(parser, mark, kind)
 
 Emit a new Event into the output which covers tokens from `mark` to
 the end of the most recent token which was `bump()`'ed. The starting `mark`
 should be a previous return value of `position()`.
 """
-function emit(stream::Parser, mark::Position, kind::SyntaxKinds.Kind, error_message::String="")
-    first_token = mark.token_index + 1
-    event = Event(kind, first_token, stream._finished_token_index, error_message)
-    push!(stream._events, event)
-    return position(stream)
+function emit(parser::Parser, mark::Position, kind::SyntaxKinds.Kind)
+    first_token_index = mark.token_index + 1
+    last_token_index = lastindex(parser._parsed_tokens)
+    event = Event(kind, first_token_index, last_token_index)
+    push!(parser._events, event)
+    return position(parser)
 end
 
 #-------------------------------------------------------------------------------
 # The actual logic for recursive descent parsing.
 
-function consume(parser::Parser, expected::SyntaxKinds.Kind)
+function consume(parser::Parser, expected::SyntaxKinds.Kind, error_kind::SyntaxKinds.Kind)
     if peek(parser) == expected
         bump(parser)
         return true
     else
-        recover(parser, "Expected '$(convert(String, expected))' not found.")
+        bump_error(parser, error_kind)
+        recover(parser)
         return false
     end
 end
 
 """Recover from invalid synax by trying to find the start of the next statement."""
-function recover(parser::Parser, error_msg::String)
+function recover(parser::Parser)
     mark = position(parser)
     while (k = peek(parser)) != K"EndMarker"
 
@@ -198,7 +219,10 @@ function recover(parser::Parser, error_msg::String)
         # Keep bumping and dumping, otherwise!
         bump(parser)
     end
-    emit(parser, mark, K"error", error_msg)
+    # Label dumped tokens with a special recovery event.
+    if position(parser).token_index > mark.token_index
+        emit(parser, mark, K"UnparsedErrorRecovery")
+    end
     return nothing
 end
 
@@ -221,7 +245,7 @@ end
 function parse_var_declaration(parser::Parser)
     mark = position(parser)
     bump(parser)  # K"var" token
-    if consume(parser, K"Identifier")
+    if consume(parser, K"Identifier", K"ErrorInvalidAssigmentTarget")
 
         # Handle initializer.
         if peek(parser) == K"="
@@ -229,8 +253,10 @@ function parse_var_declaration(parser::Parser)
             parse_expression(parser)
         end
 
-        consume(parser, K";") && emit(parser, mark, K"var_decl_statement")
+        # Handle final semicolon.
+        consume(parser, K";", K"ErrorStatementMissingSemicolon")
     end
+    emit(parser, mark, K"var_decl_statement")
 end
 
 function parse_statement(parser::Parser)
@@ -257,7 +283,8 @@ function parse_block(parser::Parser)
     end
 
     # Handle the "}"
-    consume(parser, K"}") && emit(parser, mark, K"block")
+    consume(parser, K"}", K"ErrorBlockMissingClosingBrace")
+    emit(parser, mark, K"block")
 end
 
 function parse_print_statement(parser::Parser)
@@ -269,13 +296,15 @@ function parse_print_statement(parser::Parser)
 
     # Parse the expression.
     parse_expression(parser)
-    consume(parser, K";") && emit(parser, mark, K"print_statement")
+    consume(parser, K";", K"ErrorStatementMissingSemicolon")
+    emit(parser, mark, K"print_statement")
 end
 
 function parse_expression_statement(parser::Parser)
     mark = position(parser)
     parse_expression(parser)
-    consume(parser, K";") && emit(parser, mark, K"expression_statement")
+    consume(parser, K";", K"ErrorStatementMissingSemicolon")
+    emit(parser, mark, K"expression_statement")
 end
 
 function parse_expression(parser::Parser)
@@ -303,7 +332,7 @@ function parse_assignment(parser::Parser)
         ]
         @assert SyntaxKinds.kind(left_side_tokens[end]) == K"="
         if length(left_side_tokens) != 2 || SyntaxKinds.kind(left_side_tokens[1]) != K"Identifier"
-            emit(parser, mark, K"error", "Invalid assignment target.")
+            emit(parser, mark, K"ErrorInvalidAssigmentTarget")
         else
             # Emit the assignment.
             emit(parser, mark, K"assignment")
@@ -363,10 +392,11 @@ function parse_primary(parser::Parser)
         parse_expression(parser)
 
         # Parse right parenthesis.
-        consume(parser, K")") && emit(parser, mark, K"grouping")
+        consume(parser, K")", K"ErrorGroupMissingClosingParenthesis")
+        emit(parser, mark, K"grouping")
     else
         # We got all the way down looking for some kind of expression and found nothing.
-        emit(parser, mark, K"error", "Expect expression.")
+        bump_error(parser, K"ErrorExpectedExpression")
     end
 end
 
