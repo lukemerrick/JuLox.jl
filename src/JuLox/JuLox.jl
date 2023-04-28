@@ -10,7 +10,7 @@ include("./tokenize.jl")
 # include("./parse/parse.jl")
 # include("./interpret.jl")
 include("./parse.jl")
-include("./lossless_tree.jl")
+include("./lossless_trees.jl")
 include("./syntax_validation.jl")
 include("./entrypoint.jl")
 
