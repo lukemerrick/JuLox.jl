@@ -28,6 +28,7 @@ const _kind_names =
         "ErrorGroupMissingClosingParenthesis"
         "ErrorInvalidAssigmentTarget"
         "ErrorExpectedExpression"
+        "ErrorTextAfterParsing"
         # Generic error
         "error"
     "END_ERRORS"
@@ -242,6 +243,7 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorGroupMissingClosingParenthesis" => "expected closing `)`",
     K"ErrorInvalidAssigmentTarget" => "invalid assignment target",
     K"ErrorExpectedExpression" => "expected expression",
+    K"ErrorTextAfterParsing" => "unexpected text after parsing"
 )
 
 function error_description(error_kind::Kind)

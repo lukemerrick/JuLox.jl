@@ -1,7 +1,7 @@
 # Tree construction from the list of text ranges held by ParseStream.
 # Builds an untyped lossless source tree, aka "green tree" in Roslyn parlance.
 
-module BuildLosslessTree
+module LosslessTrees
 using Fractal.JuLox: JuLox, SyntaxKinds, Parse, Tokenize
 
 LosslessLeafNode = Tokenize.Token  # alias

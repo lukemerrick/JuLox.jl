@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, BuildLosslessTree #, Interpret
+using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation #, Interpret
 using Fractal.JuLox.SyntaxKinds: @K_str
 
 # TODO: Restrict typing of `result`.
@@ -22,9 +22,9 @@ function _read_line_or_eof()::Union{String,Nothing}
     end
 end
 
-function run(line::String)
-    result = Parse.parse_lox(line)
-    tree = BuildLosslessTree.build_tree(result)
+function run(source::String)
+    result = Parse.parse_lox(source)
+    tree = LosslessTrees.build_tree(result)
 
     if !isempty(result.tokens)
         # Print tokens.
@@ -51,6 +51,13 @@ function run(line::String)
         # Print lossless tree.
         println("Lossless Syntax Tree")
         println(tree)
+
+        # Validate the syntax.
+        diagnostics = SyntaxValidation.validate_syntax(tree)
+        if !isempty(diagnostics)
+            SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
+            return 1
+        end
     end
 
     return 0
