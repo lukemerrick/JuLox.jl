@@ -7,7 +7,6 @@ module SyntaxKinds
 const _kind_names =
 [
     "\""  # TODO: Reorder (maybe create delimeters section?)
-
     "Identifier"
 
     "BEGIN_TRIVIA"
@@ -42,11 +41,13 @@ const _kind_names =
         "}"
         ","
         "."
-        "+"
-        "-"
         ";"
-        "/"
-        "*"
+        "BEGIN_OPERATIONS"
+            "+"
+            "-"
+            "/"
+            "*"
+        "END_OPERATIONS"
     "END_SINGLE_CHARACTER_TOKENS"
 
     "BEGIN_ONE_OR_TWO_CHARACTER_TOKENS"
@@ -84,16 +85,15 @@ const _kind_names =
         "while"
     "END_KEYWORDS"
 
-    # The following kinds are emitted by the parser.
-    # These are nonterminals which are exposed in the AST, but where the surface
-    # syntax doesn't have a token corresponding to the node type.
-    # TODO: Update this guesswork to match what's needed by Lox, and remove what's not!
     "BEGIN_SYNTAX_KINDS"
-        "call"
-        "assignment"
-        "grouping"
-        "infix_operation"
-        "unary"
+        "BEGIN_EXPRESSIONS"
+            "call"
+            "assignment"
+            "grouping"
+            "infix_operation"
+            "unary"
+            "variable"
+        "END_EXPRESSIONS"
         "BEGIN_STATEMENTS"
             "block"
             "print_statement"
@@ -256,18 +256,18 @@ end
 is_error(k::Kind) = K"BEGIN_ERRORS" < k < K"END_ERRORS"
 is_keyword(k::Kind) = K"BEGIN_KEYWORDS" < k < K"END_KEYWORDS"
 is_literal(k::Kind) = K"BEGIN_LITERAL" < k < K"END_LITERAL"
+is_operation(k::Kind) = K"BEGIN_OPERATIONS" < k < K"END_OPERATIONS"
+is_expression(k::Kind) = K"BEGIN_EXPRESSIONS" < k < K"END_EXPRESSIONS" || is_literal(k)
 is_statement(k::Kind) = K"BEGIN_STATEMENTS" < k < K"END_STATEMENTS"
 
 
 is_error(k) = is_error(kind(k))
 is_keyword(k) = is_keyword(kind(k))
 is_literal(k) = is_literal(kind(k))
+is_operation(k) = is_operation(kind(k))
+is_expression(k) = is_expression(kind(k))
 is_statement(k) = is_statement(kind(k))
 
-
-# TODO: Consider using Kinds for handling operators.
-# is_operator(k::Kind) = K"BEGIN_OPS" < k < K"END_OPS"
-# is_operator(k) = is_operator(kind(k))
 
 """
 Return true if `x` has whitespace, comment, or quote mark kind.

@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation #, Interpret
+using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees #, Interpret
 using Fractal.JuLox.SyntaxKinds: @K_str
 
 # TODO: Restrict typing of `result`.
@@ -58,6 +58,10 @@ function run(source::String)
             SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
             return 1
         end
+
+        # Craft the lossy tree.
+        lossy_tree = LossyTrees.to_lossy(tree)
+        println(lossy_tree)
     end
 
     return 0

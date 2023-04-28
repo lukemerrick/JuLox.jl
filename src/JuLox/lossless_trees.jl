@@ -1,4 +1,4 @@
-# Tree construction from the list of text ranges held by ParseStream.
+# Tree construction from the events returned by the parser..
 # Builds an untyped lossless source tree, aka "green tree" in Roslyn parlance.
 
 module LosslessTrees

@@ -12,6 +12,7 @@ include("./tokenize.jl")
 include("./parse.jl")
 include("./lossless_trees.jl")
 include("./syntax_validation.jl")
+include("./lossy_trees.jl")
 include("./entrypoint.jl")
 
 end # module

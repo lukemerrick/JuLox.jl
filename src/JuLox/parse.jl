@@ -328,7 +328,7 @@ function parse_assignment(parser::Parser)
         # Look back to left side of assignment to ensure it's an identifier.
         # TODO: Ensure this isn't too hacky compared to the JLox approach.
         left_side_tokens = [
-            t for t in parser._tokens[mark.token_index+1:mark2.token_index] if !SyntaxKinds.is_whitespace(SyntaxKinds.kind(t))
+            t for t in parser._parsed_tokens[mark.token_index+1:mark2.token_index] if !SyntaxKinds.is_whitespace(SyntaxKinds.kind(t))
         ]
         @assert SyntaxKinds.kind(left_side_tokens[end]) == K"="
         if length(left_side_tokens) != 2 || SyntaxKinds.kind(left_side_tokens[1]) != K"Identifier"
@@ -381,7 +381,10 @@ function parse_primary(parser::Parser)
     SyntaxKinds.is_error(peek(parser)) && bump(parser)  # Pass through errors.
     mark = position(parser)
     k = peek(parser)
-    if k ∈ KSet"false true nil Number String Identifier"
+    if k == K"Identifier"
+        bump(parser)
+        emit(parser, mark, K"variable")
+    elseif k ∈ KSet"false true nil Number String"
         bump(parser)
         # We don't actually have to emit a range for a single token item.
     elseif k == K"("
