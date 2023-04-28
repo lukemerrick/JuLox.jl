@@ -1,10 +1,13 @@
 module Interpret
-using Fractal.JuLox: Parse, Kind, @K_str, @KSet_str, kind, is_literal, is_statement
+using Fractal.JuLox: LossyTrees
 
 struct RuntimeError <: Exception
     msg::String
     position::Int
 end
+
+#-------------------------------------------------------------------------------
+# Environments to hold state and manage scope.
 
 struct Environment
     enclosing::Union{Nothing,Environment}
@@ -46,16 +49,27 @@ function get(environment::Environment, name::Symbol, code_position::Int)
     throw(RuntimeError("Undefined variable $(name)", code_position))
 end
 
-function interpret(environment::Environment, node::Parse.SyntaxNode, source::String)
+
+#-------------------------------------------------------------------------------
+# The interpreter logic.
+
+function linecol(pos::Int, text::String)
+    lines = split(text[1:pos], '\n')
+    line_number = length(lines)
+    column_number = length(lines[end])
+    return line_number, column_number
+end
+
+function interpret(environment::Environment, node::LossyTrees.Toplevel, source::String)
     try
-        evaluate_toplevel(environment, node)
+        evaluate(environment, node)
         had_error = false
         return had_error
     catch e
         !isa(e, RuntimeError) && rethrow()
-        lines = split(source[1:e.position], '\n')
-        linecol = "[line $(length(lines)), column $(length(lines[end]))]"
-        println("Error @ $linecol - $(e.msg)")
+        line_number, column_number = linecol(e.position, source)
+        linecol_str = "[line $(lpad(line_number, 4)), column $(lpad(column_number, 3))]"
+        println("Error @ $linecol_str - $(e.msg)")
         had_error = true
         return had_error
     end
@@ -73,111 +87,66 @@ function stringify(value)
     return string(value)
 end
 
-function evaluate_toplevel(environment::Environment, node::Parse.SyntaxNode)
-    @assert kind(node) == K"toplevel"
-    for statement in Parse.children(node)
-        evaluate_statement(environment, statement)
+function evaluate(environment::Environment, node::LossyTrees.Toplevel)
+    for statement in node.statements
+        evaluate(environment, statement)
     end
     return nothing
 end
 
-function evaluate_block_statement(environment::Environment, node::Parse.SyntaxNode)
-    @assert kind(node) == K"block"
+function evaluate(environment::Environment, node::LossyTrees.Block)
     block_environment = Environment(environment)
-    for statement in Parse.children(node)
-        evaluate_statement(block_environment, statement)
+    for statement in node.statements
+        evaluate(block_environment, statement)
     end
     return nothing
 end
 
-function evaluate_statement(environment::Environment, node::Parse.SyntaxNode)
-    @assert is_statement(node)
-    k = kind(node)
-    if k == K"expression_statement"
-        return evaluate_expression_statement(environment, node)
-    elseif k == K"print_statement"
-        return evaluate_print_statement(environment, node)
-    elseif k == K"var_decl_statement"
-        evaluate_var_statement(environment, node)
-    elseif k == K"block"
-        evaluate_block_statement(environment, node)
-    end
-
-    # Unreachable.
+function evaluate(environment::Environment, node::LossyTrees.VariableDeclaration)
+    initial_value = evaluate(environment, node.initializer)
+    identifier = node.name
+    define!(environment, identifier.symbol, initial_value)
     return nothing
 end
 
-function evaluate_var_statement(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) ∈ (1, 2)
-    var = c[1]
-    @assert kind(var) == K"Identifier"
-    name = var.value
-    value = length(c) == 2 ? evaluate_expression(environment, c[2]) : nothing
-    define!(environment, name, value)
+function evaluate(environment::Environment, node::LossyTrees.ExpressionStatement)
+    evaluate(environment, node.expression)
     return nothing
 end
 
-function evaluate_expression_statement(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) == 1
-    evaluate_expression(environment, c[1])
+function evaluate(environment::Environment, node::LossyTrees.Print)
+    println(stringify(evaluate(environment, node.expression)))
     return nothing
 end
 
-function evaluate_print_statement(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) == 1
-    println(stringify(evaluate_expression(environment, c[1])))
+function evaluate(environment::Environment, node::LossyTrees.Assign)
+    value = evaluate(environment, node.value)
+    identifier = node.name
+    assign!(environment, identifier.symbol, value, position(node.name))
     return nothing
 end
 
-function evaluate_expression(environment::Environment, node::Parse.SyntaxNode)
-    k = kind(node)
-    k == K"Identifier" && return evaluate_variable(environment, node)
-    is_literal(k) && return evaluate_literal(node)
-    k == K"grouping" && return evaluate_grouping(environment, node)
-    k == K"unary" && return evaluate_unary(environment, node)
-    k == K"infix_operation" && return evaluate_infix_operation(environment, node)
-    k == K"assignment" && return evaluate_assignment(environment, node)
-    return nothing
+function evaluate(environment::Environment, node::LossyTrees.Variable)
+    identifier = node.name
+    return get(environment, identifier.symbol, position(node))
 end
 
-function evaluate_assignment(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) == 2
-    l_node, r_node = c
-    @assert kind(l_node) == K"Identifier"
-    name = l_node.value
-    value = evaluate_expression(environment, r_node)
-    assign!(environment, name, value, l_node.position)
-    return nothing
+function evaluate(node::LossyTrees.Literal)
+    return LossyTrees.value(node)
+end
+# Match the API.
+evaluate(environment::Environment, node::LossyTrees.Literal) = evaluate(node)
+
+function evaluate(environment::Environment, node::LossyTrees.Grouping)
+    return evaluate(environment, node.expression)
 end
 
-function evaluate_variable(environment::Environment, node::Parse.SyntaxNode)
-    return get(environment, node.value, node.position)
-end
-
-function evaluate_literal(node::Parse.SyntaxNode)
-    return node.value
-end
-
-function evaluate_grouping(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) == 1
-    return evaluate_expression(environment, c[1])
-end
-
-function evaluate_unary(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) == 2
-    operator, operand = c
-    operator_kind = kind(operator)
-    operand_value = evaluate_expression(environment, operand)
-    if operator_kind == K"-"
+function evaluate(environment::Environment, node::LossyTrees.Unary)
+    operand_value = evaluate(environment, node.right)
+    if node.operator isa LossyTrees.OperatorMinus
         raise_on_non_number_in_operation(operator, operand_value)
         return -operand_value
-    elseif operator_kind == K"!"
+    elseif node.operator isa LossyTrees.OperatorBang
         return !is_truthy(operand_value)
     end
 
@@ -185,17 +154,13 @@ function evaluate_unary(environment::Environment, node::Parse.SyntaxNode)
     return nothing
 end
 
-function evaluate_infix_operation(environment::Environment, node::Parse.SyntaxNode)
-    c = Parse.children(node)
-    @assert length(c) == 3
-    left_node, operator_node, right_node = c
-    operator_kind = kind(operator_node)
-    left_value = evaluate_expression(environment, left_node)
-    right_value = evaluate_expression(environment, right_node)
-    if operator_kind == K"-"
+function evaluate(environment::Environment, node::LossyTrees.Infix)
+    left_value = evaluate(environment, node.left)
+    right_value = evaluate(environment, node.right)
+    if node.operator isa LossyTrees.OperatorMinus
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value - right_value
-    elseif operator_kind == K"+"
+    elseif node.operator isa LossyTrees.OperatorPlus
         if isa(left_value, Float64) && isa(right_value, Float64)
             return left_value + right_value
         elseif isa(left_value, String) && isa(right_value, String)
@@ -203,29 +168,29 @@ function evaluate_infix_operation(environment::Environment, node::Parse.SyntaxNo
         else
             throw(RuntimeError("Operands must be two numbers or two strings.", operator_node.position))
         end
-    elseif operator_kind == K"/"
+    elseif node.operator isa LossyTrees.OperatorDivide
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value / right_value
-    elseif operator_kind == K"*"
+    elseif node.operator isa LossyTrees.OperatorMultiply
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value * right_value
-    elseif operator_kind == K">"
+    elseif node.operator isa LossyTrees.OperatorMore
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value > right_value
-    elseif operator_kind == K">="
+    elseif node.operator isa LossyTrees.OperatorMoreEqual
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value >= right_value
-    elseif operator_kind == K"<"
+    elseif node.operator isa LossyTrees.OperatorLess
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value < right_value
-    elseif operator_kind == K"<="
+    elseif node.operator isa LossyTrees.OperatorLessEqual
         raise_on_non_number_in_operation(operator_node, left_value, right_value)
         return left_value <= right_value
-    elseif operator_kind == K"=="
+    elseif node.operator isa LossyTrees.OperatorEqual
         # NOTE: Lox and Julia share the same equality logic on Lox types
         # (including nill/nothing)!
         return left_value == right_value
-    elseif operator_kind == K"!="
+    elseif node.operator isa LossyTrees.OperatorNotEqual
         return left_value != right_value
     end
 
@@ -233,8 +198,11 @@ function evaluate_infix_operation(environment::Environment, node::Parse.SyntaxNo
     return nothing
 end
 
-function raise_on_non_number_in_operation(operator_node::Parse.SyntaxNode, values::Any...)
-    !all(isa.(values, Float64)) && throw(RuntimeError("Oparation requires number operand(s).", operator_node.position))
+function raise_on_non_number_in_operation(operator_node::LossyTrees.Operator, values::Any...)
+    pos = position(operator_node)
+    if !all(isa.(values, Float64))
+        throw(RuntimeError("Oparation requires number operand(s).", pos))
+    end
     return nothing
 end
 

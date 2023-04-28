@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees #, Interpret
+using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Interpret
 using Fractal.JuLox.SyntaxKinds: @K_str
 
 # TODO: Restrict typing of `result`.
@@ -22,7 +22,7 @@ function _read_line_or_eof()::Union{String,Nothing}
     end
 end
 
-function run(source::String)
+function run(environment::Interpret.Environment, source::String)
     result = Parse.parse_lox(source)
     tree = LosslessTrees.build_tree(result)
 
@@ -61,38 +61,20 @@ function run(source::String)
 
         # Craft the lossy tree.
         lossy_tree = LossyTrees.to_lossy(tree)
+        println("Lossy Syntax Tree")
         println(lossy_tree)
+
+        # Interpret.
+        println("Interpreter")
+        println("-----------")
+        had_error = Interpret.interpret(environment, lossy_tree, source)
+        exit_code = had_error ? 70 : 0
+        return exit_code
     end
 
     return 0
 end
 
-# function run_parse(line::String)
-#     exit_code = 0
-#     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-#     println("Lossless Syntax Tree")
-#     show(stdout, tree.green_node, line)
-#     println()
-#     println("Lossy Syntax Tree")
-#     show(stdout, tree)
-#     # println("Next byte: $(next_byte)")
-#     return exit_code
-# end
-
-
-# function run(environment::Interpret.Environment, line::String)
-#     println("Tokens")
-#     run_just_tokenize(line)
-#     println()
-#     run_parse(line)
-#     println()
-#     tree, next_byte = Parse.parseall(Parse.SyntaxNode, line)
-#     println("Interpreter")
-#     println("-----------")
-#     had_error = Interpret.interpret(environment, tree, line)
-#     exit_code = had_error ? 70 : 0
-#     return exit_code
-# end
 
 """Create a super lightweight REPL experience."""
 function run_prompt()::Integer
@@ -115,7 +97,7 @@ function run_prompt()::Integer
     )
 
     # # Initialize interpreter global environment.
-    # environment = Interpret.Environment()
+    environment = Interpret.Environment()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -143,8 +125,7 @@ function run_prompt()::Integer
         end
         if line != "\n"
             try
-                run(line)
-                # run(environment, line)
+                run(environment, line)
             catch e
                 # !isa(e, Parse.ParseError) && rethrow()
                 # showerror(stdout, e)
@@ -157,9 +138,8 @@ function run_prompt()::Integer
 end
 
 function run_file(filepath::String)::Integer
-    # environment = Interpret.Environment()
-    # exit_code = run(environment, read(filepath, String))
-    exit_code = run(read(filepath, String))
+    environment = Interpret.Environment()
+    exit_code = run(environment, read(filepath, String))
     return exit_code
 end
 end  # module

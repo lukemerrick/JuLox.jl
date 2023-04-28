@@ -56,6 +56,8 @@ function to_literal(lossless_node::LosslessTrees.LosslessLeafNode)
     error("Must only call `to_literal` on a literal kind node")
 end
 
+value(l::Literal) = l.value
+
 #-------------------------------------------------------------------------------
 # Operators.
 
@@ -77,12 +79,47 @@ struct OperatorMinus <: Operator
     lossless_node::LosslessTrees.LosslessLeafNode
 end
 
+struct OperatorBang <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorLess <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorLessEqual <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorMore <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorMoreEqual <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorEqual <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorNotEqual <: Operator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
 function to_operator(lossless_node::LosslessTrees.LosslessLeafNode)
     k = SyntaxKinds.kind(lossless_node)
     k == K"*" && return OperatorMultiply(lossless_node)
     k == K"/" && return OperatorDivide(lossless_node)
     k == K"+" && return OperatorPlus(lossless_node)
     k == K"-" && return OperatorMinus(lossless_node)
+    k == K"!" && return OperatorBang(lossless_node)
+    k == K"<" && return OperatorLess(lossless_node)
+    k == K"<=" && return OperatorLessEqual(lossless_node)
+    k == K">" && return OperatorMore(lossless_node)
+    k == K">=" && return OperatorMoreEqual(lossless_node)
+    k == K"==" && return OperatorEqual(lossless_node)
+    k == K"!=" && return OperatorNotEqual(lossless_node)
     error("Must only call `to_operator` on an operator kind node")
 end
 
@@ -92,7 +129,7 @@ end
 
 struct Identifier <: Expression
     lossless_node::LosslessTrees.LosslessLeafNode
-    name::Symbol
+    symbol::Symbol
 end
 
 function to_identifier(lossless_node::LosslessTrees.LosslessLeafNode)
@@ -112,7 +149,7 @@ end
 
 struct Assign{V<:Expression} <: Expression
     lossless_node::LosslessTrees.LosslessInnerNode
-    name::Variable
+    name::Identifier
     value::V
 end
 
@@ -162,7 +199,9 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         @assert length(children) == 2
         name, value = children
         @assert SyntaxKinds.kind(name) == K"variable"
-        return Assign(lossless_node, to_expression(name), to_expression(value))
+        # NOTE: We unwrap the `Variable` to the child `Identifier` here, slightly flattening
+        # the syntax tree.
+        return Assign(lossless_node, to_expression(name).name, to_expression(value))
     end
 
     # Unreachable.
@@ -238,8 +277,16 @@ end
 #-------------------------------------------------------------------------------
 # Shared functionality and display.
 
-lossless_node(node::LossyNode)::LosslessTrees.LosslessNode = node.lossless_node
-function children(node::LossyNode)
+lossless_node(node::T) where {T<:LossyNode} = node.lossless_node
+Base.position(node::T) where {T<:LossyNode} = JuLox.startbyte(lossless_node(node))
+function range(node::T) where {T<:LossyNode}
+    # TODO: Drop whitespace and other trivia when determining position.
+    lnode = lossless_node(node)
+    startbyte = JuLox.startbyte(lnode)
+    endbyte = JuLox.endbyte(lnode)
+    return startbyte, endbyte
+end
+function children(node::T) where {T<:LossyNode}
     res = []
     child_properties = [sym for sym in propertynames(node) if sym != :lossless_node]
     for child_sym in child_properties
@@ -257,16 +304,13 @@ end
 function _value_str(node::LossyNode)
     node isa NilLiteral && return "nil"
     node isa Literal && return repr(node.value)
-    node isa Identifier && return node.name
+    node isa Identifier && return node.symbol
     return SyntaxKinds.kind(lossless_node(node))
 end
 
 function _show_lossy_node(io, node::LossyNode, indent)
-    lnode = lossless_node(node)
     val = _value_str(node)
-    # TODO: Drop whitespace and other trivia when determining position.
-    startbyte = JuLox.startbyte(lnode)
-    endbyte = JuLox.endbyte(lnode)
+    startbyte, endbyte = range(node)
     posstr = "$(lpad(startbyte, 6)):$(rpad(endbyte, 6)) │"
     is_leaf = node isa Union{Literal,Operator,Identifier}
     nodestr = is_leaf ? val : "[$(val)]"
