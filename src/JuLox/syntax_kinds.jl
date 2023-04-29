@@ -28,6 +28,8 @@ const _kind_names =
         "ErrorInvalidAssigmentTarget"
         "ErrorExpectedExpression"
         "ErrorTextAfterParsing"
+        "ErrorIfMissingOpenParenthesis"
+        "ErrorIfMissingClosingParenthesis"
         # Generic error
         "error"
     "END_ERRORS"
@@ -99,6 +101,7 @@ const _kind_names =
             "print_statement"
             "expression_statement"
             "var_decl_statement"
+            "if_statement"
         "END_STATEMENTS"
         "toplevel"
     "END_SYNTAX_KINDS"
@@ -243,7 +246,9 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorGroupMissingClosingParenthesis" => "expected closing `)`",
     K"ErrorInvalidAssigmentTarget" => "invalid assignment target",
     K"ErrorExpectedExpression" => "expected expression",
-    K"ErrorTextAfterParsing" => "unexpected text after parsing"
+    K"ErrorTextAfterParsing" => "unexpected text after parsing",
+    K"ErrorIfMissingOpenParenthesis" => "expect '(' after if.",
+    K"ErrorIfMissingClosingParenthesis" => "expect ')' after if condition.",
 )
 
 function error_description(error_kind::Kind)
@@ -255,7 +260,7 @@ end
 # Predicates
 is_error(k::Kind) = K"BEGIN_ERRORS" < k < K"END_ERRORS"
 is_keyword(k::Kind) = K"BEGIN_KEYWORDS" < k < K"END_KEYWORDS"
-is_literal(k::Kind) = K"BEGIN_LITERAL" < k < K"END_LITERAL"
+is_literal(k::Kind) = K"BEGIN_LITERAL" < k < K"END_LITERAL" || k ∈ KSet"true false nil"
 is_operation(k::Kind) = K"BEGIN_OPERATIONS" < k < K"END_OPERATIONS"
 is_expression(k::Kind) = K"BEGIN_EXPRESSIONS" < k < K"END_EXPRESSIONS" || is_literal(k)
 is_statement(k::Kind) = K"BEGIN_STATEMENTS" < k < K"END_STATEMENTS"

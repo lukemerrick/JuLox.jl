@@ -14,7 +14,7 @@ function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
     return (
         !SyntaxKinds.is_whitespace(SyntaxKinds.kind(node))
         &&
-        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = var"
+        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = var if else"
     )
 end
 is_kept_kind(node::LosslessTrees.LosslessInnerNode) = true
@@ -174,7 +174,7 @@ end
 
 function to_expression(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
-    @assert SyntaxKinds.is_expression(k)
+    @assert SyntaxKinds.is_expression(k) "$k should be an expression kind"
 
     # Case 1: Literal expression in leaf node.
     SyntaxKinds.is_literal(k) && return to_literal(lossless_node)
@@ -232,6 +232,13 @@ struct VariableDeclaration{E<:Expression} <: Statement
     initializer::E
 end
 
+struct If{C<:Expression,T<:Statement,E<:Union{Nothing,Statement}} <: Statement
+    lossless_node::LosslessTrees.LosslessInnerNode
+    condition::C
+    then_statement::T
+    else_statement::E
+end
+
 function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_statement(k)
@@ -247,13 +254,30 @@ function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
     elseif k == K"var_decl_statement"
         n_children = length(children)
         if n_children == 1
-            name, initializer = children[1], nothing
+            name, initializer = to_identifier(children[1]), nothing
         elseif n_children == 2
             name, initializer = children
+            name, initializer = to_identifier(name), to_expression(initializer)
         else
             error("Unexpected $n_children children of a variable declaration")
         end
-        return VariableDeclaration(lossless_node, to_identifier(name), to_expression(initializer))
+        return VariableDeclaration(lossless_node, name, initializer)
+    elseif k == K"if_statement"
+        n_children = length(children)
+        if n_children == 2
+            condition, then_statement = children
+            condition = to_expression(condition)
+            then_statement = to_statement(then_statement)
+            else_statement = nothing
+        elseif n_children == 3
+            condition, then_statement, else_statement = children
+            condition = to_expression(condition)
+            then_statement = to_statement(then_statement)
+            else_statement = to_statement(else_statement)
+        else
+            error("Unexpected $n_children children of an if statement")
+        end
+        return If(lossless_node, condition, then_statement, else_statement)
     end
 
     # Unreachable.

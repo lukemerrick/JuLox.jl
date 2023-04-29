@@ -265,6 +265,8 @@ function parse_statement(parser::Parser)
         parse_block(parser)
     elseif k == K"print"
         parse_print_statement(parser)
+    elseif k == K"if"
+        parse_if_statement(parser)
     else
         parse_expression_statement(parser)
     end
@@ -305,6 +307,34 @@ function parse_expression_statement(parser::Parser)
     parse_expression(parser)
     consume(parser, K";", K"ErrorStatementMissingSemicolon")
     emit(parser, mark, K"expression_statement")
+end
+
+function parse_if_statement(parser::Parser)
+    mark = position(parser)
+
+    # Handle the "if".
+    @assert SyntaxKinds.kind(peek(parser)) == K"if"
+    bump(parser)
+
+    # Parse the if conditional.
+    consume(parser, K"(", K"ErrorIfMissingOpenParenthesis")
+    parse_expression(parser)
+    consume(parser, K")", K"ErrorIfMissingClosingParenthesis")
+
+    # Parse then statement.
+    parse_statement(parser)
+
+    # Possibly parse else statement.
+    if peek(parser) == K"else"
+        bump(parser)
+        parse_statement(parser)
+    end
+
+    # Consume the final semicolon.
+    consume(parser, K";", K"ErrorStatementMissingSemicolon")
+
+    # Emit the if statement event.
+    emit(parser, mark, K"if_statement")
 end
 
 function parse_expression(parser::Parser)

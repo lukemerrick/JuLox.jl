@@ -1,0 +1,10 @@
+var x = true;
+if (!x)
+    print "then branch";
+else
+    print "else branch";
+;
+
+if (x)
+    print "then branch";
+;

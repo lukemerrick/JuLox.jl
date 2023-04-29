@@ -119,6 +119,15 @@ function evaluate(environment::Environment, node::LossyTrees.Print)
     return nothing
 end
 
+function evaluate(environment::Environment, node::LossyTrees.If)
+    if is_truthy(evaluate(environment, node.condition))
+        evaluate(environment, node.then_statement)
+    else
+        !isnothing(node.else_statement) && evaluate(environment, node.else_statement)
+    end
+    return nothing
+end
+
 function evaluate(environment::Environment, node::LossyTrees.Assign)
     value = evaluate(environment, node.value)
     identifier = node.name
