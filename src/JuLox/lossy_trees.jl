@@ -62,6 +62,8 @@ value(l::Literal) = l.value
 # Operators.
 
 abstract type Operator <: LossyNode end
+abstract type LogicOperator <: LossyNode end
+
 
 struct OperatorMultiply <: Operator
     lossless_node::LosslessTrees.LosslessLeafNode
@@ -107,6 +109,14 @@ struct OperatorNotEqual <: Operator
     lossless_node::LosslessTrees.LosslessLeafNode
 end
 
+struct OperatorOr <: LogicOperator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
+struct OperatorAnd <: LogicOperator
+    lossless_node::LosslessTrees.LosslessLeafNode
+end
+
 function to_operator(lossless_node::LosslessTrees.LosslessLeafNode)
     k = SyntaxKinds.kind(lossless_node)
     k == K"*" && return OperatorMultiply(lossless_node)
@@ -120,6 +130,8 @@ function to_operator(lossless_node::LosslessTrees.LosslessLeafNode)
     k == K">=" && return OperatorMoreEqual(lossless_node)
     k == K"==" && return OperatorEqual(lossless_node)
     k == K"!=" && return OperatorNotEqual(lossless_node)
+    k == K"or" && return OperatorOr(lossless_node)
+    k == K"and" && return OperatorAnd(lossless_node)
     error("Must only call `to_operator` on an operator kind node")
 end
 
@@ -166,6 +178,13 @@ struct Infix{O<:Operator,L<:Expression,R<:Expression} <: Expression
     right::R
 end
 
+struct Logical{O<:LogicOperator,L<:Expression,R<:Expression} <: Expression
+    lossless_node::LosslessTrees.LosslessInnerNode
+    operator::O
+    left::L
+    right::R
+end
+
 struct Grouping{E<:Expression} <: Expression
     lossless_node::LosslessTrees.LosslessInnerNode
     expression::E
@@ -188,7 +207,11 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     elseif k == K"infix_operation"
         @assert length(children) == 3
         left, operator, right = children
-        return Infix(lossless_node, to_expression(left), to_operator(operator), to_expression(right))
+        return Infix(lossless_node, to_operator(operator), to_expression(left), to_expression(right))
+    elseif k == K"logical"
+        @assert length(children) == 3
+        left, operator, right = children
+        return Logical(lossless_node, to_operator(operator), to_expression(left), to_expression(right))
     elseif k == K"grouping"
         @assert length(children) == 1
         return Grouping(lossless_node, to_expression(children[1]))

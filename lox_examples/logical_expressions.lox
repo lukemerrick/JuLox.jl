@@ -1,0 +1,9 @@
+if (true and 1)
+    print "and works";
+;
+if (false or 1)
+    print "or works";
+;
+if (false or nil)
+    print "whoops!";
+;

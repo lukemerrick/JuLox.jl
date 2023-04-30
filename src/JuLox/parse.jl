@@ -346,7 +346,7 @@ function parse_assignment(parser::Parser)
     mark = position(parser)
 
     # Parse left side of assignment (or only side of non-assignment!)
-    parse_equality(parser)
+    parse_or(parser)
 
     # Check for a right side.
     if peek(parser) == K"="
@@ -370,7 +370,7 @@ function parse_assignment(parser::Parser)
     end
 end
 
-function parse_infix_operator(parser::Parser, op_kset::Tuple{Vararg{SyntaxKinds.Kind}}, left_right_parse_fn::Function)
+function parse_infix_syntax(parser::Parser, op_kset::Tuple{Vararg{SyntaxKinds.Kind}}, left_right_parse_fn::Function, syntax_type::SyntaxKinds.Kind)
     mark = position(parser)
 
     # Parse the left operand.
@@ -386,11 +386,21 @@ function parse_infix_operator(parser::Parser, op_kset::Tuple{Vararg{SyntaxKinds.
         left_right_parse_fn(parser)
 
         # Emit the operand covering from start of left through end of right.
-        emit(parser, mark, K"infix_operation")
+        emit(parser, mark, syntax_type)
     end
     return nothing
 end
 
+function parse_infix_operator(parser::Parser, op_kset::Tuple{Vararg{SyntaxKinds.Kind}}, left_right_parse_fn::Function)
+    return parse_infix_syntax(parser, op_kset, left_right_parse_fn, K"infix_operation")
+end
+
+function parse_logical_operator(parser::Parser, op_kset::Tuple{Vararg{SyntaxKinds.Kind}}, left_right_parse_fn::Function)
+    return parse_infix_syntax(parser, op_kset, left_right_parse_fn, K"logical")
+end
+
+parse_or(parser::Parser) = parse_logical_operator(parser, KSet"or", parse_and)
+parse_and(parser::Parser) = parse_logical_operator(parser, KSet"and", parse_equality)
 parse_equality(parser::Parser) = parse_infix_operator(parser, KSet"!= ==", parse_comparison)
 parse_comparison(parser::Parser) = parse_infix_operator(parser, KSet"> >= < <=", parse_term)
 parse_term(parser::Parser) = parse_infix_operator(parser, KSet"+ -", parse_factor)

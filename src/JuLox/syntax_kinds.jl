@@ -93,6 +93,7 @@ const _kind_names =
             "assignment"
             "grouping"
             "infix_operation"
+            "logical"
             "unary"
             "variable"
         "END_EXPRESSIONS"

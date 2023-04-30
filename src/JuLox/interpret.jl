@@ -207,6 +207,19 @@ function evaluate(environment::Environment, node::LossyTrees.Infix)
     return nothing
 end
 
+
+function evaluate(environment::Environment, node::LossyTrees.Logical)
+    left_value = evaluate(environment, node.left)
+    if (
+        (node.operator isa LossyTrees.OperatorOr && is_truthy(left_value))
+        ||
+        (node.operator isa LossyTrees.OperatorAnd && !is_truthy(left_value))
+    )
+        return left_value
+    end
+    return evaluate(environment, node.right)
+end
+
 function raise_on_non_number_in_operation(operator_node::LossyTrees.Operator, values::Any...)
     pos = position(operator_node)
     if !all(isa.(values, Float64))
