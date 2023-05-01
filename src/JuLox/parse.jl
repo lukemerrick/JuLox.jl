@@ -498,7 +498,40 @@ function parse_unary(parser::Parser)
         parse_unary(parser)
         emit(parser, mark, K"unary")
     else
-        parse_primary(parser)
+        parse_call(parser)
+    end
+end
+
+function parse_call(parser::Parser)
+    # Track the start of the leftmost call.
+    mark = position(parser)
+
+    # Start with the primary, which could evaluate to a function.
+    parse_primary(parser)
+
+    # Parse zero or more parenthetical expressions representing calls.
+    while peek(parser) == K"("
+        # Consume the open parenthesis.
+        bump(parser)
+
+        # Consume the argument list.
+        n_args = 0
+        if peek(parser) != K")"
+            while true  # Do-while loop.
+                parse_expression(parser)
+                n_args += 1
+                peek(parser) != K"," && break
+            end
+        end
+
+        # Consume the closing parenthesis.
+        consume(parser, K")", K"ErrorCallArgsMissingClosingParenthesis")
+
+        # Emit a call event covering from start of left through end of right.
+        emit(parser, mark, K"call")
+
+        # Emit an error event if we exceeded the maximum argument count.
+        n_args >= 255 && emit(parser, mark, K"ErrorExceedMaxArguments")
     end
 end
 

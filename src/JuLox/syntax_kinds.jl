@@ -35,6 +35,8 @@ const _kind_names =
         "ErrorForMissingOpenParenthesis"
         "ErrorForMissingClosingParenthesis"
         "ErrorForHeaderMissingSemicolon"
+        "ErrorCallArgsMissingClosingParenthesis"
+        "ErrorExceedMaxArguments"
         # Generic error
         "error"
     "END_ERRORS"
@@ -266,7 +268,9 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorWhileMissingClosingParenthesis" => "expect ')' after while condition.",
     K"ErrorForMissingOpenParenthesis" => "expect '(' after for.",
     K"ErrorForMissingClosingParenthesis" => "expect ')' after for clauses.",
-    K"ErrorForHeaderMissingSemicolon" => "expect ';' after for loop condition"
+    K"ErrorForHeaderMissingSemicolon" => "expect ';' after for loop condition",
+    K"ErrorCallArgsMissingClosingParenthesis" => "expect ')' after call arguments",
+    K"ErrorExceedMaxArguments" => "exceeded maximum argument count of 255"
 )
 
 function error_description(error_kind::Kind)

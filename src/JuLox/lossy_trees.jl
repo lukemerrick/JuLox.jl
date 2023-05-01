@@ -154,6 +154,8 @@ end
 #-------------------------------------------------------------------------------
 # Inner node expressions.
 
+abstract type Callable <: Expression end
+
 struct Variable <: Expression
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
@@ -190,6 +192,11 @@ struct Grouping{E<:Expression} <: Expression
     expression::E
 end
 
+struct Call{C<:Expression} <: Expression
+    lossless_node::LosslessTrees.LosslessInnerNode
+    callee::C
+    arguments::Vector{<:Expression}
+end
 
 function to_expression(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
@@ -233,6 +240,9 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         # NOTE: We unwrap the `Variable` to the child `Identifier` here, slightly flattening
         # the syntax tree.
         return Assign(lossless_node, to_expression(name).name, to_expression(value))
+    elseif k == K"call"
+        callee, args... = to_expression.(children)
+        return Call(lossless_node, callee, args)
     end
 
     # Unreachable.
@@ -244,7 +254,7 @@ end
 
 struct Block <: Statement
     lossless_node::LosslessTrees.LosslessInnerNode
-    statements::Vector{Statement}
+    statements::Vector{<:Statement}
 end
 
 struct ExpressionStatement{E<:Expression} <: Statement
@@ -317,7 +327,7 @@ end
 
 function desugar_for_to_while(
     lossless_node::LosslessTrees.LosslessInnerNode,
-    children::Vector{Union{LosslessTrees.LosslessInnerNode,LosslessTrees.LosslessLeafNode}}
+    children::Vector{<:Union{LosslessTrees.LosslessInnerNode,LosslessTrees.LosslessLeafNode}}
 )
     # TODO: Figure out how to point the new desugared nodes to appropriate lossless nodes.
     @assert SyntaxKinds.kind(lossless_node) == K"for_statement"
@@ -344,7 +354,7 @@ function desugar_for_to_while(
     if !isnothing(initializer)
         for_loop = Block(lossless_node, Statement[initializer, for_loop])
     end
-    
+
     return for_loop
 end
 
@@ -353,7 +363,7 @@ end
 
 struct Toplevel <: LossyNode
     lossless_node::LosslessTrees.LosslessInnerNode
-    statements::Vector{Statement}
+    statements::Vector{<:Statement}
 end
 
 function to_lossy(toplevel_node::LosslessTrees.LosslessInnerNode)

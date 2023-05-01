@@ -21,6 +21,12 @@ end
 
 Environment() = Environment(nothing)
 
+function initialize_global_environment()
+    env = Environment()
+    define!(env, :clock, CLOCK_NATIVE_FN)
+    return env
+end
+
 function define!(environment::Environment, name::Symbol, value::Any)
     environment.values[name] = value
 end
@@ -49,6 +55,46 @@ function get(environment::Environment, name::Symbol, code_position::Int)
     throw(RuntimeError("Undefined variable $(name)", code_position))
 end
 
+#-------------------------------------------------------------------------------
+# Interface / structure for callables.
+
+# TODO: Make this an explicit Union of all allowed types? That would be stricter.
+abstract type Callable end
+
+# Callables must implement `arity` and `_call` and `name`!
+
+# Be strict about type of values allowed as arguments.
+ArgType = Union{String,Float64,Symbol,String,Callable}
+
+function call(environment::Environment, callee::Callable, args::Vector{ArgType}, code_position::Int)
+    # Validate that arguments match callee arity.
+    if arity(callee) != length(args)
+        message = (
+            "Callable $(name(callee)) expected $(arity(callee)) arguments but got " *
+            "$(length(args))"
+        )
+        throw(RuntimeError(message, code_position))
+    end
+
+    # Run the actual callee-specific logic.
+    return _call(environment, callee, args)
+end
+
+
+#-------------------------------------------------------------------------------
+# Native functions. Well, since there's just one, maybe "native function" is more apt.
+
+struct NativeFunction <: Callable
+    name::String
+    arity::Int
+    implementation::Function
+end
+
+name(fn::NativeFunction) = fn.name
+arity(fn::NativeFunction) = fn.arity
+_call(env::Environment, callee::NativeFunction, args::Vector{ArgType}) = callee.implementation(args)
+
+const CLOCK_NATIVE_FN = NativeFunction("clock", 0, args -> time())
 
 #-------------------------------------------------------------------------------
 # The interpreter logic.
@@ -214,6 +260,12 @@ function evaluate(environment::Environment, node::LossyTrees.Infix)
 
     # Unreachable.
     return nothing
+end
+
+function evaluate(environment::Environment, node::LossyTrees.Call)
+    callee = evaluate(environment, node.callee)
+    arguments = ArgType[evaluate(environment, arg) for arg in node.arguments]
+    return call(environment, callee, arguments, position(node))
 end
 
 

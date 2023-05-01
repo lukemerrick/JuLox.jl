@@ -97,7 +97,7 @@ function run_prompt()::Integer
     )
 
     # # Initialize interpreter global environment.
-    environment = Interpret.Environment()
+    global_env = Interpret.initialize_global_environment()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -125,7 +125,7 @@ function run_prompt()::Integer
         end
         if line != "\n"
             try
-                run(environment, line)
+                run(global_env, line)
             catch e
                 # !isa(e, Parse.ParseError) && rethrow()
                 # showerror(stdout, e)
@@ -138,8 +138,8 @@ function run_prompt()::Integer
 end
 
 function run_file(filepath::String)::Integer
-    environment = Interpret.Environment()
-    exit_code = run(environment, read(filepath, String))
+    global_env = Interpret.initialize_global_environment()
+    exit_code = run(global_env, read(filepath, String))
     return exit_code
 end
 end  # module
