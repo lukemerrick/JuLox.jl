@@ -14,7 +14,7 @@ function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
     return (
         !SyntaxKinds.is_whitespace(SyntaxKinds.kind(node))
         &&
-        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = var if else"
+        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = var if else while for"
     )
 end
 is_kept_kind(node::LosslessTrees.LosslessInnerNode) = true
@@ -195,8 +195,16 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_expression(k) "$k should be an expression kind"
 
-    # Case 1: Literal expression in leaf node.
-    SyntaxKinds.is_literal(k) && return to_literal(lossless_node)
+    # Case 1: Leaf node literal expression or implied missing expression.
+    if SyntaxKinds.is_literal(k)
+        return to_literal(lossless_node)
+    elseif k == K"omitted_var_initializer"
+        return NilLiteral(lossless_node)
+    elseif k == K"omitted_for_condition"
+        return BoolLiteral(lossless_node, true)
+    elseif k == K"omitted_for_incrementer"
+        return nothing
+    end
 
     # Case 2: More complicated expression in inner node.
     children = filter(is_kept_kind, LosslessTrees.children(lossless_node))
@@ -262,6 +270,12 @@ struct If{C<:Expression,T<:Statement,E<:Union{Nothing,Statement}} <: Statement
     else_statement::E
 end
 
+struct While{C<:Expression,S<:Union{Nothing,Statement}} <: Statement
+    lossless_node::LosslessTrees.LosslessInnerNode
+    condition::C
+    statement::S
+end
+
 function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_statement(k)
@@ -275,36 +289,63 @@ function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
         @assert length(children) == 1
         return Print(lossless_node, to_expression(children[1]))
     elseif k == K"var_decl_statement"
-        n_children = length(children)
-        if n_children == 1
-            name, initializer = to_identifier(children[1]), nothing
-        elseif n_children == 2
-            name, initializer = children
-            name, initializer = to_identifier(name), to_expression(initializer)
-        else
-            error("Unexpected $n_children children of a variable declaration")
-        end
+        @assert length(children) == 2
+        name, initializer = children
+        name, initializer = to_identifier(name), to_expression(initializer)
         return VariableDeclaration(lossless_node, name, initializer)
     elseif k == K"if_statement"
-        n_children = length(children)
-        if n_children == 2
-            condition, then_statement = children
-            condition = to_expression(condition)
-            then_statement = to_statement(then_statement)
-            else_statement = nothing
-        elseif n_children == 3
-            condition, then_statement, else_statement = children
-            condition = to_expression(condition)
-            then_statement = to_statement(then_statement)
-            else_statement = to_statement(else_statement)
-        else
-            error("Unexpected $n_children children of an if statement")
-        end
+        @assert length(children) == 3
+        condition, then_statement, else_statement = children
+        condition = to_expression(condition)
+        then_statement = to_statement(then_statement)
+        else_statement = to_statement(else_statement)
         return If(lossless_node, condition, then_statement, else_statement)
+    elseif k == K"while_statement"
+        @assert length(children) == 2
+        condition, statement = children
+        return While(lossless_node, to_expression(condition), to_statement(statement))
+    elseif k == K"for_statement"
+        return desugar_for_to_while(lossless_node, children)
+    elseif k ∈ KSet"omitted_else omitted_for_initializer"
+        return nothing
     end
 
     # Unreachable.
     return nothing
+end
+
+
+function desugar_for_to_while(
+    lossless_node::LosslessTrees.LosslessInnerNode,
+    children::Vector{Union{LosslessTrees.LosslessInnerNode,LosslessTrees.LosslessLeafNode}}
+)
+    # TODO: Figure out how to point the new desugared nodes to appropriate lossless nodes.
+    @assert SyntaxKinds.kind(lossless_node) == K"for_statement"
+    @assert length(children) == 4
+
+    # Unpack the children and convert them to lossless node objects.
+    initializer, condition, incrementer, body = children
+    initializer = to_statement(initializer)
+    condition = to_expression(condition)
+    incrementer = to_expression(incrementer)
+    body = to_statement(body)
+
+    # Combine the incrementer and looped body statement into a block.
+    if !isnothing(incrementer)
+        # Promote the expression to an expression statement.
+        incrementer_statement = ExpressionStatement(incrementer.lossless_node, incrementer)
+        body = Block(lossless_node, Statement[body, incrementer_statement])
+    end
+
+    # Create a while loop with the condition and body.
+    for_loop = While(lossless_node, condition, body)
+
+    # Combine the initializer and while loop into a block.
+    if !isnothing(initializer)
+        for_loop = Block(lossless_node, Statement[initializer, for_loop])
+    end
+    
+    return for_loop
 end
 
 #-------------------------------------------------------------------------------

@@ -30,6 +30,11 @@ const _kind_names =
         "ErrorTextAfterParsing"
         "ErrorIfMissingOpenParenthesis"
         "ErrorIfMissingClosingParenthesis"
+        "ErrorWhileMissingOpenParenthesis"
+        "ErrorWhileMissingClosingParenthesis"
+        "ErrorForMissingOpenParenthesis"
+        "ErrorForMissingClosingParenthesis"
+        "ErrorForHeaderMissingSemicolon"
         # Generic error
         "error"
     "END_ERRORS"
@@ -96,6 +101,9 @@ const _kind_names =
             "logical"
             "unary"
             "variable"
+            "omitted_var_initializer"
+            "omitted_for_condition"
+            "omitted_for_incrementer"
         "END_EXPRESSIONS"
         "BEGIN_STATEMENTS"
             "block"
@@ -103,6 +111,10 @@ const _kind_names =
             "expression_statement"
             "var_decl_statement"
             "if_statement"
+            "while_statement"
+            "for_statement"
+            "omitted_else"
+            "omitted_for_initializer"
         "END_STATEMENTS"
         "toplevel"
     "END_SYNTAX_KINDS"
@@ -250,6 +262,11 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorTextAfterParsing" => "unexpected text after parsing",
     K"ErrorIfMissingOpenParenthesis" => "expect '(' after if.",
     K"ErrorIfMissingClosingParenthesis" => "expect ')' after if condition.",
+    K"ErrorWhileMissingOpenParenthesis" => "expect '(' after while.",
+    K"ErrorWhileMissingClosingParenthesis" => "expect ')' after while condition.",
+    K"ErrorForMissingOpenParenthesis" => "expect '(' after for.",
+    K"ErrorForMissingClosingParenthesis" => "expect ')' after for clauses.",
+    K"ErrorForHeaderMissingSemicolon" => "expect ';' after for loop condition"
 )
 
 function error_description(error_kind::Kind)

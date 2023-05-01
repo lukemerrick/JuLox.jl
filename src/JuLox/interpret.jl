@@ -128,6 +128,13 @@ function evaluate(environment::Environment, node::LossyTrees.If)
     return nothing
 end
 
+function evaluate(environment::Environment, node::LossyTrees.While)
+    while is_truthy(evaluate(environment, node.condition))
+        evaluate(environment, node.statement)
+    end
+    return nothing
+end
+
 function evaluate(environment::Environment, node::LossyTrees.Assign)
     value = evaluate(environment, node.value)
     identifier = node.name
@@ -152,10 +159,11 @@ end
 
 function evaluate(environment::Environment, node::LossyTrees.Unary)
     operand_value = evaluate(environment, node.right)
+    operator = node.operator
     if node.operator isa LossyTrees.OperatorMinus
         raise_on_non_number_in_operation(operator, operand_value)
         return -operand_value
-    elseif node.operator isa LossyTrees.OperatorBang
+    elseif operator isa LossyTrees.OperatorBang
         return !is_truthy(operand_value)
     end
 
@@ -166,8 +174,9 @@ end
 function evaluate(environment::Environment, node::LossyTrees.Infix)
     left_value = evaluate(environment, node.left)
     right_value = evaluate(environment, node.right)
+    operator = node.operator
     if node.operator isa LossyTrees.OperatorMinus
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value - right_value
     elseif node.operator isa LossyTrees.OperatorPlus
         if isa(left_value, Float64) && isa(right_value, Float64)
@@ -175,25 +184,25 @@ function evaluate(environment::Environment, node::LossyTrees.Infix)
         elseif isa(left_value, String) && isa(right_value, String)
             return left_value * right_value
         else
-            throw(RuntimeError("Operands must be two numbers or two strings.", operator_node.position))
+            throw(RuntimeError("Operands must be two numbers or two strings.", operator.position))
         end
     elseif node.operator isa LossyTrees.OperatorDivide
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value / right_value
     elseif node.operator isa LossyTrees.OperatorMultiply
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value * right_value
     elseif node.operator isa LossyTrees.OperatorMore
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value > right_value
     elseif node.operator isa LossyTrees.OperatorMoreEqual
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value >= right_value
     elseif node.operator isa LossyTrees.OperatorLess
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value < right_value
     elseif node.operator isa LossyTrees.OperatorLessEqual
-        raise_on_non_number_in_operation(operator_node, left_value, right_value)
+        raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value <= right_value
     elseif node.operator isa LossyTrees.OperatorEqual
         # NOTE: Lox and Julia share the same equality logic on Lox types

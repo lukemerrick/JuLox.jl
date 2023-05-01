@@ -155,6 +155,16 @@ function bump(parser::Parser)
     return position(parser)
 end
 
+"""
+Bump into the outputs a zero-length implied token created by the parsing process.
+
+This is useful when certain syntax implies a null expression, like a variable assignment
+or for loop without an initializer.
+"""
+function bump_implied(parser::Parser, kind::SyntaxKinds.Kind)
+    token = Tokenize.Token(kind, last_byte(parser), "")
+    push!(parser._parsed_tokens, token)
+end
 
 """
 Bump into the outputs a zero-length error token created by the parsing process.
@@ -164,8 +174,7 @@ are useful for other kinds of invalid syntax (like assinging values to a non-var
 """
 function bump_error(parser::Parser, err_kind::SyntaxKinds.Kind)
     @assert SyntaxKinds.is_error(err_kind)
-    err_token = Tokenize.Token(err_kind, last_byte(parser), "")
-    push!(parser._parsed_tokens, err_token)
+    bump_implied(parser, err_kind)
 end
 
 #-------------------------------------------------------------------------------
@@ -251,6 +260,9 @@ function parse_var_declaration(parser::Parser)
         if peek(parser) == K"="
             bump(parser)
             parse_expression(parser)
+        else
+            # Bump a special zero-width token as a placeholder if there is no initializer.
+            bump_implied(parser, K"omitted_var_initializer")
         end
 
         # Handle final semicolon.
@@ -267,6 +279,10 @@ function parse_statement(parser::Parser)
         parse_print_statement(parser)
     elseif k == K"if"
         parse_if_statement(parser)
+    elseif k == K"while"
+        parse_while_statement(parser)
+    elseif k == K"for"
+        parse_for_statement(parser)
     else
         parse_expression_statement(parser)
     end
@@ -328,13 +344,82 @@ function parse_if_statement(parser::Parser)
     if peek(parser) == K"else"
         bump(parser)
         parse_statement(parser)
+    else
+        # Bump a special zero-width token as a placeholder if there is no else.
+        bump_implied(parser, K"omitted_else")
     end
-
-    # Consume the final semicolon.
-    consume(parser, K";", K"ErrorStatementMissingSemicolon")
 
     # Emit the if statement event.
     emit(parser, mark, K"if_statement")
+end
+
+function parse_while_statement(parser::Parser)
+    mark = position(parser)
+
+    # Handle the "while".
+    @assert SyntaxKinds.kind(peek(parser)) == K"while"
+    bump(parser)
+
+    # Parse the continuation conditional.
+    consume(parser, K"(", K"ErrorWhileMissingOpenParenthesis")
+    parse_expression(parser)
+    consume(parser, K")", K"ErrorWhileMissingClosingParenthesis")
+
+    # Parse then statement.
+    parse_statement(parser)
+
+    # Emit the while statement event.
+    emit(parser, mark, K"while_statement")
+end
+
+function parse_for_statement(parser::Parser)
+    mark = position(parser)
+
+    # Handle the "for".
+    @assert SyntaxKinds.kind(peek(parser)) == K"for"
+    bump(parser)
+
+    # Start parsing the header parenthetical.
+    consume(parser, K"(", K"ErrorForMissingOpenParenthesis")
+
+    # Item 1 of 3: Initializer.
+    k = peek(parser)
+    if k == K";"
+        # No initializer to parse. Bump the semicolon.
+        bump_implied(parser, K"omitted_for_initializer")
+        bump(parser)
+    elseif k == K"var"
+        # Var declaration initializer.
+        parse_var_declaration(parser)
+    else
+        # Expression initializer.
+        parse_expression_statement(parser)
+    end
+
+    # Item 2 of 3: Condition expression.
+    if peek(parser) != K";"
+        parse_expression(parser)
+    else
+        bump_implied(parser, K"omitted_for_condition")
+    end
+    # Consume semicolon.
+    consume(parser, K";", K"ErrorForHeaderMissingSemicolon")
+
+    # Item 3 of 3: Incrementer.
+    if peek(parser) != K")"
+        parse_expression(parser)
+    else
+        bump_implied(parser, K"omitted_for_incrementer")
+    end
+
+    # End parsing the header parenthetical.
+    consume(parser, K")", K"ErrorForMissingClosingParenthesis")
+
+    # Parse then statement.
+    parse_statement(parser)
+
+    # Emit the while statement event.
+    emit(parser, mark, K"for_statement")
 end
 
 function parse_expression(parser::Parser)
