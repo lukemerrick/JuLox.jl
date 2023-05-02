@@ -58,6 +58,10 @@ end
 #-------------------------------------------------------------------------------
 # Interface / structure for callables.
 
+struct ReturnAsException <: Exception
+    value::Any
+end
+
 # TODO: Make this an explicit Union of all allowed types? That would be stricter.
 abstract type Callable end
 
@@ -109,7 +113,15 @@ function _call(environment::Environment, callee::LoxFunction, args::Vector{ArgTy
     for (identifier, arg) in zip(callee.declaration.parameters, args)
         define!(function_env, identifier.symbol, arg)
     end
-    evaluate(function_env, callee.declaration.body)
+
+    # Try-catch so that we can interpret return statements via exceptions.
+    try
+        evaluate(function_env, callee.declaration.body)
+    catch e
+        !isa(e, ReturnAsException) && rethrow()
+        return e.value
+    end
+
     return nothing
 end
 
@@ -184,6 +196,10 @@ end
 function evaluate(environment::Environment, node::LossyTrees.ExpressionStatement)
     evaluate(environment, node.expression)
     return nothing
+end
+
+function evaluate(environment::Environment, node::LossyTrees.ReturnStatement)
+    throw(ReturnAsException(evaluate(environment, node.return_value)))
 end
 
 function evaluate(environment::Environment, node::LossyTrees.Print)

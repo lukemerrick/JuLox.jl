@@ -324,6 +324,8 @@ function parse_statement(parser::Parser)
         parse_while_statement(parser)
     elseif k == K"for"
         parse_for_statement(parser)
+    elseif k == K"return"
+        parse_return_statement(parser)
     else
         parse_expression_statement(parser)
     end
@@ -461,6 +463,26 @@ function parse_for_statement(parser::Parser)
 
     # Emit the while statement event.
     emit(parser, mark, K"for_statement")
+end
+
+function parse_return_statement(parser::Parser)
+    mark = position(parser)
+
+    # Consume "return".
+    bump(parser)
+
+    # Check for a return value.
+    if peek(parser) != K";"
+        parse_expression(parser)
+    else
+        bump_implied(parser, K"omitted_return_value")
+    end
+
+    # Consume semicolon.
+    consume(parser, K";", K"ErrorStatementMissingSemicolon")
+
+    # Emite the return statement event.
+    emit(parser, mark, K"return_statement")
 end
 
 function parse_expression(parser::Parser)

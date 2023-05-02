@@ -11,10 +11,11 @@ abstract type Statement <: LossyNode end
 
 """Specify the kinds of nodes to drop from the lossless source tree to create the AST."""
 function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
+    k = SyntaxKinds.kind(node)
     return (
-        !SyntaxKinds.is_whitespace(SyntaxKinds.kind(node))
-        &&
-        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = fun var if else while for , ."
+        !SyntaxKinds.is_whitespace(k)
+        && !SyntaxKinds.is_keyword(k)
+        && k ∉ KSet"( ) { } ; = , ."
     )
 end
 is_kept_kind(node::LosslessTrees.LosslessInnerNode) = true
@@ -202,10 +203,10 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_expression(k) "$k should be an expression kind"
 
-    # Case 1: Leaf node literal expression or implied missing expression.
+    # Case 1: Leaf node (literal expression or implied missing expression).
     if SyntaxKinds.is_literal(k)
         return to_literal(lossless_node)
-    elseif k == K"omitted_var_initializer"
+    elseif k ∈ KSet"omitted_var_initializer omitted_return_value"
         return NilLiteral(lossless_node)
     elseif k == K"omitted_for_condition"
         return BoolLiteral(lossless_node, true)
@@ -213,7 +214,7 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         return nothing
     end
 
-    # Case 2: More complicated expression in inner node.
+    # Case 2: Inner node (more complicated expression with children).
     children = filter(is_kept_kind, LosslessTrees.children(lossless_node))
     if k == K"unary"
         @assert length(children) == 2
@@ -293,15 +294,28 @@ struct While{C<:Expression,S<:Union{Nothing,Statement}} <: Statement
     statement::S
 end
 
-function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
+struct ReturnStatement{E<:Expression} <: Statement
+    lossless_node::LosslessTrees.LosslessInnerNode
+    return_value::E
+end
+
+function to_statement(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_statement(k)
+
+    # Case 1: Leaf node omitted statements.
+    k ∈ KSet"omitted_else omitted_for_initializer" && return nothing
+
+    # Case 2: Inner node "real" statements.
     children = filter(is_kept_kind, LosslessTrees.children(lossless_node))
     if k == K"block"
         return Block(lossless_node, to_statement.(children))
     elseif k == K"expression_statement"
         @assert length(children) == 1
         return ExpressionStatement(lossless_node, to_expression(children[1]))
+    elseif k == K"return_statement"
+        @assert length(children) == 1
+        return ReturnStatement(lossless_node, to_expression(children[1]))
     elseif k == K"print_statement"
         @assert length(children) == 1
         return Print(lossless_node, to_expression(children[1]))
@@ -332,8 +346,6 @@ function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
         return While(lossless_node, to_expression(condition), to_statement(statement))
     elseif k == K"for_statement"
         return desugar_for_to_while(lossless_node, children)
-    elseif k ∈ KSet"omitted_else omitted_for_initializer"
-        return nothing
     end
 
     # Unreachable.
