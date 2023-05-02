@@ -37,6 +37,12 @@ const _kind_names =
         "ErrorForHeaderMissingSemicolon"
         "ErrorCallArgsMissingClosingParenthesis"
         "ErrorExceedMaxArguments"
+        "ErrorExceedMaxParameters"
+        "ErrorInvalidMethodOrFunctionIdentifier"
+        "ErrorDeclarationMissingOpenParenthesis"
+        "ErrorDeclarationMissingOpenBraces"
+        "ErrorInvalidParameterIdentifier"
+        "ErrorParametersMissingClosingParenthesis"
         # Generic error
         "error"
     "END_ERRORS"
@@ -112,6 +118,7 @@ const _kind_names =
             "print_statement"
             "expression_statement"
             "var_decl_statement"
+            "fun_decl_statement"
             "if_statement"
             "while_statement"
             "for_statement"
@@ -256,11 +263,11 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorUnknownCharacter" => "unknown character",
     K"ErrorUnterminatedString" => "unterminated string",
     K"error" => "unknown error token",
-    K"ErrorStatementMissingSemicolon" => "expected `;` to end the statement",
-    K"ErrorBlockMissingClosingBrace" => "expected closing `}`",
-    K"ErrorGroupMissingClosingParenthesis" => "expected closing `)`",
+    K"ErrorStatementMissingSemicolon" => "expect `;` to end the statement",
+    K"ErrorBlockMissingClosingBrace" => "expect closing `}`",
+    K"ErrorGroupMissingClosingParenthesis" => "expect closing `)`",
     K"ErrorInvalidAssigmentTarget" => "invalid assignment target",
-    K"ErrorExpectedExpression" => "expected expression",
+    K"ErrorExpectedExpression" => "expect expression",
     K"ErrorTextAfterParsing" => "unexpected text after parsing",
     K"ErrorIfMissingOpenParenthesis" => "expect '(' after if.",
     K"ErrorIfMissingClosingParenthesis" => "expect ')' after if condition.",
@@ -270,7 +277,13 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorForMissingClosingParenthesis" => "expect ')' after for clauses.",
     K"ErrorForHeaderMissingSemicolon" => "expect ';' after for loop condition",
     K"ErrorCallArgsMissingClosingParenthesis" => "expect ')' after call arguments",
-    K"ErrorExceedMaxArguments" => "exceeded maximum argument count of 255"
+    K"ErrorExceedMaxArguments" => "exceeded maximum argument count of 255",
+    K"ErrorExceedMaxParameters" => "exceeded maximum parameter count of 255",
+    K"ErrorInvalidMethodOrFunctionIdentifier" => "expect function/method name",
+    K"ErrorDeclarationMissingOpenParenthesis" => "expect '(' after function/method name",
+    K"ErrorDeclarationMissingOpenBraces" => "expect '{' before function/method body",
+    K"ErrorInvalidParameterIdentifier" => "expect parameter name",
+    K"ErrorParametersMissingClosingParenthesis" => "expect ')' after parameters.",
 )
 
 function error_description(error_kind::Kind)

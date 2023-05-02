@@ -61,7 +61,7 @@ end
 # TODO: Make this an explicit Union of all allowed types? That would be stricter.
 abstract type Callable end
 
-# Callables must implement `arity` and `_call` and `name`!
+# Callables must implement `arity` and `_call` and `string`!
 
 # Be strict about type of values allowed as arguments.
 ArgType = Union{String,Float64,Symbol,String,Callable}
@@ -70,7 +70,7 @@ function call(environment::Environment, callee::Callable, args::Vector{ArgType},
     # Validate that arguments match callee arity.
     if arity(callee) != length(args)
         message = (
-            "Callable $(name(callee)) expected $(arity(callee)) arguments but got " *
+            "Callable $(string(callee)) expected $(arity(callee)) arguments but got " *
             "$(length(args))"
         )
         throw(RuntimeError(message, code_position))
@@ -90,11 +90,31 @@ struct NativeFunction <: Callable
     implementation::Function
 end
 
-name(fn::NativeFunction) = fn.name
+Base.string(fn::NativeFunction) = fn.name
 arity(fn::NativeFunction) = fn.arity
-_call(env::Environment, callee::NativeFunction, args::Vector{ArgType}) = callee.implementation(args)
+_call(environment::Environment, callee::NativeFunction, args::Vector{ArgType}) = callee.implementation(args)
 
 const CLOCK_NATIVE_FN = NativeFunction("clock", 0, args -> time())
+
+
+#-------------------------------------------------------------------------------
+# Lox functions.
+
+struct LoxFunction <: Callable
+    declaration::LossyTrees.FunctionDeclaration
+end
+
+function _call(environment::Environment, callee::LoxFunction, args::Vector{ArgType})
+    function_env = Environment(environment)
+    for (identifier, arg) in zip(callee.declaration.parameters, args)
+        define!(function_env, identifier.symbol, arg)
+    end
+    evaluate(function_env, callee.declaration.body)
+    return nothing
+end
+
+Base.string(fn::LoxFunction) = "<fn $(string(fn.declaration.name))>"
+arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 #-------------------------------------------------------------------------------
 # The interpreter logic.
@@ -152,6 +172,12 @@ function evaluate(environment::Environment, node::LossyTrees.VariableDeclaration
     initial_value = evaluate(environment, node.initializer)
     identifier = node.name
     define!(environment, identifier.symbol, initial_value)
+    return nothing
+end
+
+function evaluate(environment::Environment, node::LossyTrees.FunctionDeclaration)
+    identifier = node.name
+    define!(environment, identifier.symbol, LoxFunction(node))
     return nothing
 end
 

@@ -14,7 +14,7 @@ function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
     return (
         !SyntaxKinds.is_whitespace(SyntaxKinds.kind(node))
         &&
-        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = var if else while for"
+        SyntaxKinds.kind(node) ∉ KSet"( ) { } print ; = fun var if else while for , ."
     )
 end
 is_kept_kind(node::LosslessTrees.LosslessInnerNode) = true
@@ -147,7 +147,7 @@ end
 function to_identifier(lossless_node::LosslessTrees.LosslessLeafNode)
     k = SyntaxKinds.kind(lossless_node)
     text = Tokenize.text(lossless_node)
-    @assert k == K"Identifier"
+    @assert k == K"Identifier" "Expected identifier but got $(k)"
     return Identifier(lossless_node, Symbol(text))
 end
 
@@ -273,6 +273,13 @@ struct VariableDeclaration{E<:Expression} <: Statement
     initializer::E
 end
 
+struct FunctionDeclaration <: Statement
+    lossless_node::LosslessTrees.LosslessInnerNode
+    name::Identifier
+    parameters::Vector{Identifier}
+    body::Block
+end
+
 struct If{C<:Expression,T<:Statement,E<:Union{Nothing,Statement}} <: Statement
     lossless_node::LosslessTrees.LosslessInnerNode
     condition::C
@@ -303,6 +310,15 @@ function to_statement(lossless_node::LosslessTrees.LosslessInnerNode)
         name, initializer = children
         name, initializer = to_identifier(name), to_expression(initializer)
         return VariableDeclaration(lossless_node, name, initializer)
+    elseif k == K"fun_decl_statement"
+        name = children[1]
+        parameters = children[2:end-1]
+        body = children[end]
+        @assert SyntaxKinds.kind(body) == K"block" "Expected block but got $(SyntaxKinds.kind(body))"
+        name = to_identifier(name)
+        parameters = to_identifier.(parameters)
+        body = to_statement(body)
+        return FunctionDeclaration(lossless_node, name, parameters, body)
     elseif k == K"if_statement"
         @assert length(children) == 3
         condition, then_statement, else_statement = children

@@ -244,8 +244,11 @@ function parse_toplevel(parser::Parser)
 end
 
 function parse_declaration(parser::Parser)
-    if peek(parser) == K"var"
+    k = peek(parser)
+    if k == K"var"
         parse_var_declaration(parser)
+    elseif k == K"fun"
+        parse_function_declaration(parser)
     else
         parse_statement(parser)
     end
@@ -269,6 +272,44 @@ function parse_var_declaration(parser::Parser)
         consume(parser, K";", K"ErrorStatementMissingSemicolon")
     end
     emit(parser, mark, K"var_decl_statement")
+end
+
+function parse_function_declaration(parser::Parser)
+    mark = position(parser)
+    bump(parser)  # K"fun" token
+
+    # Parse the identifier.
+    if consume(parser, K"Identifier", K"ErrorInvalidMethodOrFunctionIdentifier")
+
+        # Consume the open parenthesis.
+        consume(parser, K"(", K"ErrorDeclarationMissingOpenParenthesis")
+
+        # Consume the argument list.
+        n_args = 0
+        if peek(parser) != K")"
+            while true  # Do-while loop.
+                consume(parser, K"Identifier", K"ErrorInvalidParameterIdentifier")
+                n_args += 1
+                peek(parser) != K"," && break
+                bump(parser)  # Take the comma.
+            end
+        end
+
+        # Consume the closing parenthesis.
+        consume(parser, K")", K"ErrorParametersMissingClosingParenthesis")
+
+        # Emit an error event if we exceeded the maximum parameter count.
+        n_args >= 255 && emit(parser, mark, K"ErrorExceedMaxArguments")
+
+        # Handle definition block.
+        if peek(parser) != K"{"
+            bump_error(parser, K"ErrorDeclarationMissingOpenBraces")
+            recover(parser)
+        else
+            parse_block(parser)
+        end
+    end
+    emit(parser, mark, K"fun_decl_statement")
 end
 
 function parse_statement(parser::Parser)
@@ -521,6 +562,7 @@ function parse_call(parser::Parser)
                 parse_expression(parser)
                 n_args += 1
                 peek(parser) != K"," && break
+                bump(parser)  # Take the comma.
             end
         end
 
