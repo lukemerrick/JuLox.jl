@@ -11,6 +11,7 @@ include("./parse.jl")
 include("./lossless_trees.jl")
 include("./syntax_validation.jl")
 include("./lossy_trees.jl")
+include("./resolve.jl")
 include("./interpret.jl")
 include("./entrypoint.jl")
 

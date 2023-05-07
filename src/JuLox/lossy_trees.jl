@@ -405,6 +405,7 @@ end
 
 lossless_node(node::T) where {T<:LossyNode} = node.lossless_node
 Base.position(node::T) where {T<:LossyNode} = JuLox.startbyte(lossless_node(node))
+SyntaxKinds.kind(node::T) where {T<:LossyNode} = SyntaxKinds.kind(lossless_node(node))
 function range(node::T) where {T<:LossyNode}
     # TODO: Drop whitespace and other trivia when determining position.
     lnode = lossless_node(node)

@@ -1,5 +1,5 @@
 module Entrypoint
-using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Interpret
+using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret
 using Fractal.JuLox.SyntaxKinds: @K_str
 
 # TODO: Restrict typing of `result`.
@@ -22,7 +22,7 @@ function _read_line_or_eof()::Union{String,Nothing}
     end
 end
 
-function run(environment::Interpret.Environment, source::String)
+function run(interpreter_state::Interpret.InterpreterState, source::String)
     result = Parse.parse_lox(source)
     tree = LosslessTrees.build_tree(result)
 
@@ -64,10 +64,29 @@ function run(environment::Interpret.Environment, source::String)
         println("Lossy Syntax Tree")
         println(lossy_tree)
 
+        # Resolve variables (resolving the semantics).
+        locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
+        if !isempty(diagnostics)
+            SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
+            return 1
+        end
+        Interpret.update_local_scope_map!(interpreter_state, locals)
+        println("Variable Resolution")
+        println("Name           Position      Up")
+        println("-------------------------------")
+        for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
+            println(
+                rpad(":$(key.name.symbol)", 15)
+                * lpad("$(position(key))", 8)
+                * lpad(string(value), 8)
+            )
+        end
+        println()
+
         # Interpret.
         println("Interpreter")
         println("-----------")
-        had_error = Interpret.interpret(environment, lossy_tree, source)
+        had_error = Interpret.interpret(interpreter_state, lossy_tree, source)
         exit_code = had_error ? 70 : 0
         return exit_code
     end
@@ -96,8 +115,8 @@ function run_prompt()::Integer
         "\n\n"
     )
 
-    # # Initialize interpreter global environment.
-    global_env = Interpret.initialize_global_environment()
+    # Initialize the interpreter state.
+    interpreter_state = Interpret.initialize_interpreter()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -125,7 +144,7 @@ function run_prompt()::Integer
         end
         if line != "\n"
             try
-                run(global_env, line)
+                run(interpreter_state, line)
             catch e
                 # !isa(e, Parse.ParseError) && rethrow()
                 # showerror(stdout, e)
@@ -138,8 +157,6 @@ function run_prompt()::Integer
 end
 
 function run_file(filepath::String)::Integer
-    global_env = Interpret.initialize_global_environment()
-    exit_code = run(global_env, read(filepath, String))
-    return exit_code
+    return run(Interpret.initialize_interpreter(), read(filepath, String))
 end
 end  # module

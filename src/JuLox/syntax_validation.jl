@@ -11,6 +11,10 @@ struct Diagnostic
     _message::String
 end
 
+function Diagnostic(node::LosslessTrees.LosslessNode, message::String)
+    return Diagnostic(JuLox.startbyte(node), JuLox.endbyte(node), message)
+end
+
 first_byte(d::Diagnostic) = d._first_byte
 last_byte(d::Diagnostic) = d._last_byte
 message(d::Diagnostic) = d._message
@@ -45,9 +49,7 @@ function _validate_syntax(node::LosslessTrees.LosslessNode, diagnostics::Vector{
     # TODO: Consider skipping error cascades, e.g. from unterminated strings.
     k = SyntaxKinds.kind(node)
     if SyntaxKinds.is_error(k)
-        diagnostic = Diagnostic(
-            JuLox.startbyte(node), JuLox.endbyte(node), SyntaxKinds.error_description(k)
-        )
+        diagnostic = Diagnostic(node, SyntaxKinds.error_description(k))
         push!(diagnostics, diagnostic)
     end
 

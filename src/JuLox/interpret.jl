@@ -9,50 +9,123 @@ end
 #-------------------------------------------------------------------------------
 # Environments to hold state and manage scope.
 
+
+"""
+    Environment(parent_env::Nothing)
+    Environment(parent_env::Environment)
+
+An environment holds state in a scope-managed way. If `parent_env == nothing`,
+we create a global environment, otherwise we create a local environment nested within
+the specified parent.
+"""
 struct Environment
-    enclosing::Union{Nothing,Environment}
+    global_env::Union{Nothing,Environment}
+    parent_env::Union{Nothing,Environment}
     values::Dict{Symbol,Any}
 
-    # The `values` dict is always created from scratch when creating an `Environment`.
-    function Environment(enclosing::Union{Nothing,Environment})
-        return new(enclosing, Dict{Symbol,Any}())
+    function Environment(parent_env::Union{Nothing,Environment})
+        if isnothing(parent_env)
+            # This env is the global env, set it's `global_env` to `nothing` as a poor-man's
+            # self-reference.
+            global_env = nothing
+        else
+            if isnothing(parent_env.global_env)
+                # The parent env is the global env since its `global_env` is set to
+                # `nothing` as a marker.
+                global_env = parent_env
+            else
+                # The parent env is not the global env, so it has an explicit referene to
+                # the global env.
+                global_env = parent_env.global_env
+            end
+        end
+        # The `values` dict is always created from scratch when creating an `Environment`.
+        values = Dict{Symbol,Any}()
+        return new(global_env, parent_env, values)
     end
 end
 
-Environment() = Environment(nothing)
+global_env(env::Environment) = isnothing(env.global_env) ? env : env.global_env
+parent_env(env::Environment) = env.parent_env
+values(env::Environment) = env.values
 
-function initialize_global_environment()
-    env = Environment()
-    define!(env, :clock, CLOCK_NATIVE_FN)
-    return env
+"""Get the environment a given distance up relative to the specified environment.
+
+The relationship `environment_at(env, 0) == env` is always true.
+"""
+function environment_at(env::Environment, distance::Union{Nothing,Int})
+    if isnothing(distance)
+        return global_env(env)
+    else
+        selected_env = env
+        for _ in 1:distance
+            selected_env = parent_env(selected_env)
+        end
+        return selected_env
+    end
 end
 
 function define!(environment::Environment, name::Symbol, value::Any)
-    environment.values[name] = value
+    values(environment)[name] = value
 end
 
-function assign!(environment::Environment, name::Symbol, value::Any, code_position::Int)
-    if name ∈ keys(environment.values)
-        # Use local scope if possible.
-        environment.values[name] = value
-    elseif !isnothing(environment.enclosing)
-        # Fall back to enclosing scope.
-        assign!(environment.enclosing, name, value, code_position)
-    else
-        # Throw an error if we can't find the `name`-ed item.
-        throw(RuntimeError("Undefined variable $(name)", code_position))
-    end
+function assign!(environment::Environment, distance::Union{Nothing,Int}, name::Symbol, value::Any)
+    target_env = environment_at(environment, distance)
+    target_values = values(target_env)
+    @assert haskey(target_values, name) "Cannot find '$(name)' in $(target_env)"
+    target_values[name] = value
 end
 
-function get(environment::Environment, name::Symbol, code_position::Int)
-    # Check the local scope.
-    haskey(environment.values, name) && return environment.values[name]
+function Base.get(environment::Environment, distance::Union{Nothing,Int}, name::Symbol)
+    target_env = environment_at(environment, distance)
+    target_values = values(target_env)
+    @assert haskey(target_values, name) "Cannot find '$(name)' in $(target_env)"
+    return target_values[name]
+end
 
-    # Fall back to enclosing scope.
-    !isnothing(environment.enclosing) && return get(environment.enclosing, name, code_position)
+function Base.string(environment::Environment)
+    parent = parent_env(environment)
+    parent_str = isnothing(parent) ? "<no parent>" : string(parent)
+    values_str = string(Dict(key => typeof(value) for (key, value) in pairs(values(environment))))
+    return "Environment(values=$(values_str), parent=$(parent_str))"
+end
 
-    # Throw an error if we can't find the `name`-ed item.
-    throw(RuntimeError("Undefined variable $(name)", code_position))
+Base.show(io::IO, environment::Environment) = show(io, string(environment))
+
+#-------------------------------------------------------------------------------
+# Parser state composing Environment and name resolution.
+
+mutable struct InterpreterState
+    environment::Environment
+    local_scope_map::Dict{LossyTrees.LossyNode,Int}
+end
+
+function initialize_interpreter()
+    # Initialize an empty global environment and define the native function.
+    global_environment = Environment(nothing)
+    define!(global_environment, :clock, CLOCK_NATIVE_FN)
+
+    # Initialize an empty variable resolution map.
+    local_scope_map = Dict{LossyTrees.LossyNode,Int}()
+
+    return InterpreterState(global_environment, local_scope_map)
+end
+
+function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.LossyNode,Int})
+    merge!(state.local_scope_map, new_scope_map)
+    return nothing
+end
+
+function enter_environment(f::Function, state::InterpreterState, environment::Environment)
+    original_env = state.environment
+    state.environment = environment
+    result = f(state)
+    state.environment = original_env
+    return result
+end
+
+function enter_environment(f::Function, state::InterpreterState)
+    return enter_environment(f, state, Environment(state.environment))
 end
 
 #-------------------------------------------------------------------------------
@@ -70,7 +143,7 @@ abstract type Callable end
 # Be strict about type of values allowed as arguments.
 ArgType = Union{String,Float64,Symbol,String,Callable}
 
-function call(environment::Environment, callee::Callable, args::Vector{ArgType}, code_position::Int)
+function call(state::InterpreterState, callee::Callable, args::Vector{ArgType}, code_position::Int)
     # Validate that arguments match callee arity.
     if arity(callee) != length(args)
         message = (
@@ -81,7 +154,7 @@ function call(environment::Environment, callee::Callable, args::Vector{ArgType},
     end
 
     # Run the actual callee-specific logic.
-    return _call(environment, callee, args)
+    return _call(state, callee, args)
 end
 
 
@@ -96,36 +169,43 @@ end
 
 Base.string(fn::NativeFunction) = fn.name
 arity(fn::NativeFunction) = fn.arity
-_call(environment::Environment, callee::NativeFunction, args::Vector{ArgType}) = callee.implementation(args)
+_call(state::InterpreterState, callee::NativeFunction, args::Vector{ArgType}) = callee.implementation(args)
 
 const CLOCK_NATIVE_FN = NativeFunction("clock", 0, args -> time())
 
 
 #-------------------------------------------------------------------------------
-# Lox functions.
+# Lox (aka non-native) functions.
 
 struct LoxFunction <: Callable
     declaration::LossyTrees.FunctionDeclaration
+    closure::Environment
 end
 
-function _call(environment::Environment, callee::LoxFunction, args::Vector{ArgType})
-    function_env = Environment(environment)
-    for (identifier, arg) in zip(callee.declaration.parameters, args)
-        define!(function_env, identifier.symbol, arg)
-    end
+function _call(state::InterpreterState, callee::LoxFunction, args::Vector{ArgType})
+    # Function execution happens in a new environment, with the function's closure as the
+    # parent environment.
+    result = enter_environment(state, Environment(callee.closure)) do fn_state
+        # Define all parameter-named variables with argument-defined values.
+        for (identifier, arg) in zip(callee.declaration.parameters, args)
+            define!(fn_state.environment, identifier.symbol, arg)
+        end
 
-    # Try-catch so that we can interpret return statements via exceptions.
-    try
-        evaluate(function_env, callee.declaration.body)
-    catch e
-        !isa(e, ReturnAsException) && rethrow()
-        return e.value
+        # Try-catch so that we can interpret return statements via exceptions.
+        result = nothing
+        try
+            evaluate(fn_state, callee.declaration.body)
+        catch e
+            !isa(e, ReturnAsException) && rethrow()
+            result = e.value
+        end
+        return result
     end
-
-    return nothing
+    return result
 end
 
 Base.string(fn::LoxFunction) = "<fn $(string(fn.declaration.name))>"
+Base.show(fn::LoxFunction) = string(fn)
 arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 #-------------------------------------------------------------------------------
@@ -138,9 +218,9 @@ function linecol(pos::Int, text::String)
     return line_number, column_number
 end
 
-function interpret(environment::Environment, node::LossyTrees.Toplevel, source::String)
+function interpret(state::InterpreterState, node::LossyTrees.Toplevel, source::String)
     try
-        evaluate(environment, node)
+        evaluate(state, node)
         had_error = false
         return had_error
     catch e
@@ -165,88 +245,93 @@ function stringify(value)
     return string(value)
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Toplevel)
+function evaluate(state::InterpreterState, node::LossyTrees.Toplevel)
     for statement in node.statements
-        evaluate(environment, statement)
+        evaluate(state, statement)
     end
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Block)
-    block_environment = Environment(environment)
-    for statement in node.statements
-        evaluate(block_environment, statement)
+function evaluate(state::InterpreterState, node::LossyTrees.Block)
+    # Use a new environment for the block scope.
+    enter_environment(state) do block_state
+        # Execute the block statements.
+        for statement in node.statements
+            evaluate(block_state, statement)
+        end
     end
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.VariableDeclaration)
-    initial_value = evaluate(environment, node.initializer)
+function evaluate(state::InterpreterState, node::LossyTrees.VariableDeclaration)
+    initial_value = evaluate(state, node.initializer)
     identifier = node.name
-    define!(environment, identifier.symbol, initial_value)
+    define!(state.environment, identifier.symbol, initial_value)
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.FunctionDeclaration)
+function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
     identifier = node.name
-    define!(environment, identifier.symbol, LoxFunction(node))
+    define!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.ExpressionStatement)
-    evaluate(environment, node.expression)
+function evaluate(state::InterpreterState, node::LossyTrees.ExpressionStatement)
+    evaluate(state, node.expression)
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.ReturnStatement)
-    throw(ReturnAsException(evaluate(environment, node.return_value)))
+function evaluate(state::InterpreterState, node::LossyTrees.ReturnStatement)
+    throw(ReturnAsException(evaluate(state, node.return_value)))
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Print)
-    println(stringify(evaluate(environment, node.expression)))
+function evaluate(state::InterpreterState, node::LossyTrees.Print)
+    println(stringify(evaluate(state, node.expression)))
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.If)
-    if is_truthy(evaluate(environment, node.condition))
-        evaluate(environment, node.then_statement)
+function evaluate(state::InterpreterState, node::LossyTrees.If)
+    if is_truthy(evaluate(state, node.condition))
+        evaluate(state, node.then_statement)
     else
-        !isnothing(node.else_statement) && evaluate(environment, node.else_statement)
+        !isnothing(node.else_statement) && evaluate(state, node.else_statement)
     end
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.While)
-    while is_truthy(evaluate(environment, node.condition))
-        evaluate(environment, node.statement)
+function evaluate(state::InterpreterState, node::LossyTrees.While)
+    while is_truthy(evaluate(state, node.condition))
+        evaluate(state, node.statement)
     end
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Assign)
-    value = evaluate(environment, node.value)
+function evaluate(state::InterpreterState, node::LossyTrees.Assign)
+    value = evaluate(state, node.value)
     identifier = node.name
-    assign!(environment, identifier.symbol, value, position(node.name))
+    distance = get(state.local_scope_map, node, nothing)
+    assign!(state.environment, distance, identifier.symbol, value)
     return nothing
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Variable)
+function evaluate(state::InterpreterState, node::LossyTrees.Variable)
     identifier = node.name
-    return get(environment, identifier.symbol, position(node))
+    distance = get(state.local_scope_map, node, nothing)
+    return get(state.environment, distance, identifier.symbol)
 end
 
 function evaluate(node::LossyTrees.Literal)
     return LossyTrees.value(node)
 end
 # Match the API.
-evaluate(environment::Environment, node::LossyTrees.Literal) = evaluate(node)
+evaluate(state::InterpreterState, node::LossyTrees.Literal) = evaluate(node)
 
-function evaluate(environment::Environment, node::LossyTrees.Grouping)
-    return evaluate(environment, node.expression)
+function evaluate(state::InterpreterState, node::LossyTrees.Grouping)
+    return evaluate(state, node.expression)
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Unary)
-    operand_value = evaluate(environment, node.right)
+function evaluate(state::InterpreterState, node::LossyTrees.Unary)
+    operand_value = evaluate(state, node.right)
     operator = node.operator
     if node.operator isa LossyTrees.OperatorMinus
         raise_on_non_number_in_operation(operator, operand_value)
@@ -256,12 +341,12 @@ function evaluate(environment::Environment, node::LossyTrees.Unary)
     end
 
     # Unreachable.
-    return nothing
+    error("Should not reach here")
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Infix)
-    left_value = evaluate(environment, node.left)
-    right_value = evaluate(environment, node.right)
+function evaluate(state::InterpreterState, node::LossyTrees.Infix)
+    left_value = evaluate(state, node.left)
+    right_value = evaluate(state, node.right)
     operator = node.operator
     if node.operator isa LossyTrees.OperatorMinus
         raise_on_non_number_in_operation(operator, left_value, right_value)
@@ -301,18 +386,21 @@ function evaluate(environment::Environment, node::LossyTrees.Infix)
     end
 
     # Unreachable.
-    return nothing
+    error("Should not reach here")
 end
 
-function evaluate(environment::Environment, node::LossyTrees.Call)
-    callee = evaluate(environment, node.callee)
-    arguments = ArgType[evaluate(environment, arg) for arg in node.arguments]
-    return call(environment, callee, arguments, position(node))
+function evaluate(state::InterpreterState, node::LossyTrees.Call)
+    callee = evaluate(state, node.callee)
+    if !isa(callee, Callable)
+        throw(RuntimeError("Can only call functions and classess", position(node.callee)))
+    end
+    arguments = ArgType[evaluate(state, arg) for arg in node.arguments]
+    return call(state, callee, arguments, position(node))
 end
 
 
-function evaluate(environment::Environment, node::LossyTrees.Logical)
-    left_value = evaluate(environment, node.left)
+function evaluate(state::InterpreterState, node::LossyTrees.Logical)
+    left_value = evaluate(state, node.left)
     if (
         (node.operator isa LossyTrees.OperatorOr && is_truthy(left_value))
         ||
@@ -320,7 +408,7 @@ function evaluate(environment::Environment, node::LossyTrees.Logical)
     )
         return left_value
     end
-    return evaluate(environment, node.right)
+    return evaluate(state, node.right)
 end
 
 function raise_on_non_number_in_operation(operator_node::LossyTrees.Operator, values::Any...)
