@@ -28,17 +28,36 @@ function end_scope!(state::ResolverState)
     return nothing
 end
 
-function declare!(state::ResolverState, symbol::Symbol)
-    if !isempty(state.scopes)
-        last(state.scopes)[symbol] = false
+function declare!(state::ResolverState, name::LossyTrees.Identifier)
+    # Do nothing in the global scope.
+    isempty(state.scopes) && return nothing
+
+    current_scope = last(state.scopes)
+    symbol = name.symbol
+
+    # Add an error message if we're repeatedly declaring a variable in a local scope.
+    if haskey(current_scope, symbol)
+        diagnostic = SyntaxValidation.Diagnostic(
+            name.lossless_node, "already a variable with this name in this scope"
+        )
+        push!(state.diagnostics, diagnostic)
     end
+
+    # Track that this variable has been declared (but not defined yet) in the current scope.
+    current_scope[symbol] = false
+
     return nothing
 end
 
-function define!(state::ResolverState, symbol::Symbol)
-    if !isempty(state.scopes)
-        last(state.scopes)[symbol] = true
-    end
+function define!(state::ResolverState, name::LossyTrees.Identifier)
+    # Do nothing in the global scope.
+    isempty(state.scopes) && return nothing
+
+    # Track that definition has completed.
+    current_scope = last(state.scopes)
+    symbol = name.symbol
+    @assert haskey(current_scope, symbol)
+    current_scope[symbol] = true
     return nothing
 end
 
@@ -79,9 +98,9 @@ function analyze(state::ResolverState, node::LossyTrees.Block)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.VariableDeclaration)
-    declare!(state, node.name.symbol)
+    declare!(state, node.name)
     analyze(state, node.initializer)
-    define!(state, node.name.symbol)
+    define!(state, node.name)
     return nothing
 end
 
@@ -95,7 +114,7 @@ function analyze(state::ResolverState, node::LossyTrees.Variable)
         && !last(state.scopes)[symbol]
     )
         diagnostic = SyntaxValidation.Diagnostic(
-            node.lossless_node,  "Can't read local variable in its own initializer"
+            node.lossless_node, "can't read local variable in its own initializer"
         )
         push!(state.diagnostics, diagnostic)
     end
@@ -116,8 +135,8 @@ end
 
 function analyze(state::ResolverState, node::LossyTrees.FunctionDeclaration)
     # Function names are bound to the surrounding scope.
-    declare!(state, node.name.symbol)
-    define!(state, node.name.symbol)
+    declare!(state, node.name)
+    define!(state, node.name)
 
     # Handle the function itself.
     analyze_function(state, node)
@@ -131,8 +150,8 @@ function analyze_function(state::ResolverState, node::LossyTrees.FunctionDeclara
 
     # Deal with the parameters.
     for param in node.parameters
-        declare!(state, param.symbol)
-        define!(state, param.symbol)
+        declare!(state, param)
+        define!(state, param)
     end
 
     # Deal with the body.
