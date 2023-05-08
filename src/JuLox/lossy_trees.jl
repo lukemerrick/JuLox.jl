@@ -14,7 +14,7 @@ function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
     k = SyntaxKinds.kind(node)
     return (
         !SyntaxKinds.is_whitespace(k)
-        && !SyntaxKinds.is_keyword(k)
+        && !SyntaxKinds.is_syntax_keyword(k)
         && k ∉ KSet"( ) { } ; = , ."
     )
 end

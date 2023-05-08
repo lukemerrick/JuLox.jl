@@ -82,22 +82,26 @@ const _kind_names =
     "END_LITERAL"
 
     "BEGIN_KEYWORDS"
-        "and"
-        "class"
-        "else"
-        "false"
-        "fun"
-        "for"
-        "if"
-        "nil"
-        "or"
-        "print"
-        "return"
-        "super"
-        "this"
-        "true"
-        "var"
-        "while"
+        "BEGIN_SYNTAX_KEYWORDS"
+            "and"
+            "class"
+            "else"
+            "fun"
+            "for"
+            "if"
+            "or"
+            "print"
+            "return"
+            "super"
+            "this"
+            "var"
+            "while"
+        "END_SYNTAX_KEYWORDS"
+        "BEGIN_VALUE_KEYWORDS"
+            "nil"
+            "true"
+            "false"
+        "END_VALUE_KEYWORDS"
     "END_KEYWORDS"
 
     "BEGIN_SYNTAX_KINDS"
@@ -297,6 +301,7 @@ end
 # Predicates
 is_error(k::Kind) = K"BEGIN_ERRORS" < k < K"END_ERRORS"
 is_keyword(k::Kind) = K"BEGIN_KEYWORDS" < k < K"END_KEYWORDS"
+is_syntax_keyword(k::Kind) = K"BEGIN_SYNTAX_KEYWORDS" < k < K"END_SYNTAX_KEYWORDS"
 is_literal(k::Kind) = K"BEGIN_LITERAL" < k < K"END_LITERAL" || k ∈ KSet"true false nil"
 is_operation(k::Kind) = K"BEGIN_OPERATIONS" < k < K"END_OPERATIONS"
 is_expression(k::Kind) = K"BEGIN_EXPRESSIONS" < k < K"END_EXPRESSIONS" || is_literal(k)
@@ -305,6 +310,7 @@ is_statement(k::Kind) = K"BEGIN_STATEMENTS" < k < K"END_STATEMENTS"
 
 is_error(k) = is_error(kind(k))
 is_keyword(k) = is_keyword(kind(k))
+is_syntax_keyword(k) = is_syntax_keyword(kind(k))
 is_literal(k) = is_literal(kind(k))
 is_operation(k) = is_operation(kind(k))
 is_expression(k) = is_expression(kind(k))

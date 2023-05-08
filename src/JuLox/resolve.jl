@@ -1,5 +1,8 @@
 module Resolver
 
+# TODO: (Challenge item from the book): Extend the validation to report an error if
+# a local variable is defined but not used.
+
 using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
 
 #-------------------------------------------------------------------------------
@@ -8,15 +11,20 @@ using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
 # Type alias.
 Scope = Dict{Symbol,Bool}
 
+_assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function)
+
 struct ResolverState
     scopes::Vector{Scope}
     locals::Dict{LossyTrees.LossyNode,Int}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
+    current_function::Ref{Symbol}
 
     function ResolverState()
-        return new(Scope[], Dict{LossyTrees.LossyNode,Int}(), SyntaxValidation.Diagnostic[])
+        return new(Scope[], Dict{LossyTrees.LossyNode,Int}(), SyntaxValidation.Diagnostic[], Ref(:none))
     end
 end
+
+current_function(state::ResolverState) = state.current_function[]
 
 function begin_scope!(state::ResolverState)
     push!(state.scopes, Scope())
@@ -60,6 +68,16 @@ function define!(state::ResolverState, name::LossyTrees.Identifier)
     current_scope[symbol] = true
     return nothing
 end
+
+function enter_function_state(f::Function, state::ResolverState, current_function::Symbol)
+    _assert_valid_function_scope(current_function)
+    original_function = state.current_function[]
+    state.current_function[] = current_function
+    result = f(state)
+    state.current_function[] = original_function
+    return result
+end
+
 
 #-------------------------------------------------------------------------------
 # Resolving reading from and writing to variables.
@@ -139,7 +157,9 @@ function analyze(state::ResolverState, node::LossyTrees.FunctionDeclaration)
     define!(state, node.name)
 
     # Handle the function itself.
-    analyze_function(state, node)
+    enter_function_state(state, :function) do state
+        analyze_function(state, node)
+    end
 
     return nothing
 end
@@ -177,6 +197,12 @@ function analyze(state::ResolverState, node::LossyTrees.ExpressionStatement)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.ReturnStatement)
+    if current_function(state) == :none
+        diagnostic = SyntaxValidation.Diagnostic(
+            node.lossless_node, "can't return from top-level code"
+        )
+        push!(state.diagnostics, diagnostic)
+    end
     analyze(state, node.return_value)
     return nothing
 end
