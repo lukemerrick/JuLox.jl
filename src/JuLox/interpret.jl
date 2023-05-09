@@ -209,6 +209,33 @@ Base.show(fn::LoxFunction) = string(fn)
 arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 #-------------------------------------------------------------------------------
+# Lox classes.
+
+struct LoxClass <: Callable
+    name::Symbol
+
+    function LoxClass(node::LossyTrees.ClassDeclaration)
+        return new(node.name.symbol)
+    end
+end
+
+struct LoxInstance
+    class::LoxClass
+end
+
+
+function _call(state::InterpreterState, callee::LoxClass, args::Vector{ArgType})
+    return LoxInstance(callee)
+end
+
+
+Base.string(c::LoxClass) = "<class $(string(c.name))>"
+Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
+Base.show(c::LoxClass) = string(c)
+arity(c::LoxClass) = 0
+
+
+#-------------------------------------------------------------------------------
 # The interpreter logic.
 
 function linecol(pos::Int, text::String)
@@ -273,6 +300,14 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
     identifier = node.name
     define!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
+    return nothing
+end
+
+function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
+    identifier = node.name
+    # TODO: Understand why two-step initialization is required.
+    define!(state.environment, identifier.symbol, nothing)
+    assign!(state.environment, 0, identifier.symbol, LoxClass(node))
     return nothing
 end
 

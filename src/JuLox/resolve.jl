@@ -164,6 +164,16 @@ function analyze(state::ResolverState, node::LossyTrees.FunctionDeclaration)
     return nothing
 end
 
+function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
+    # Class names are bound to the surrounding scope.
+    declare!(state, node.name)
+    define!(state, node.name)
+
+    # TODO: Analyze the methods.
+
+    return nothing
+end
+
 function analyze_function(state::ResolverState, node::LossyTrees.FunctionDeclaration)
     # Function declarations introduce a new scope.
     begin_scope!(state)

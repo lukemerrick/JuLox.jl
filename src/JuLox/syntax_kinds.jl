@@ -38,10 +38,10 @@ const _kind_names =
         "ErrorCallArgsMissingClosingParenthesis"
         "ErrorExceedMaxArguments"
         "ErrorExceedMaxParameters"
-        "ErrorInvalidMethodOrFunctionIdentifier"
+        "ErrorInvalidIdentifier"
         "ErrorDeclarationMissingOpenParenthesis"
         "ErrorDeclarationMissingOpenBraces"
-        "ErrorInvalidParameterIdentifier"
+        "ErrorDeclarationMissingClosingBraces"
         "ErrorParametersMissingClosingParenthesis"
         # Generic error
         "error"
@@ -124,6 +124,8 @@ const _kind_names =
             "expression_statement"
             "var_decl_statement"
             "fun_decl_statement"
+            "method_decl_statement"
+            "class_decl_statement"
             "if_statement"
             "while_statement"
             "for_statement"
@@ -285,10 +287,10 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorCallArgsMissingClosingParenthesis" => "expect ')' after call arguments",
     K"ErrorExceedMaxArguments" => "exceeded maximum argument count of 255",
     K"ErrorExceedMaxParameters" => "exceeded maximum parameter count of 255",
-    K"ErrorInvalidMethodOrFunctionIdentifier" => "expect function/method name",
+    K"ErrorInvalidIdentifier" => "expect function/method name",
     K"ErrorDeclarationMissingOpenParenthesis" => "expect '(' after function/method name",
-    K"ErrorDeclarationMissingOpenBraces" => "expect '{' before function/method body",
-    K"ErrorInvalidParameterIdentifier" => "expect parameter name",
+    K"ErrorDeclarationMissingOpenBraces" => "expect '{' before body",
+    K"ErrorDeclarationMissingClosingBraces" => "expect '{' after body",
     K"ErrorParametersMissingClosingParenthesis" => "expect ')' after parameters.",
 )
 

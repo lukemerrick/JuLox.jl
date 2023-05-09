@@ -281,6 +281,12 @@ struct FunctionDeclaration <: Statement
     body::Block
 end
 
+struct ClassDeclaration <: Statement
+    lossless_node::LosslessTrees.LosslessInnerNode
+    name::Identifier
+    methods::Vector{FunctionDeclaration}
+end
+
 struct If{C<:Expression,T<:Statement,E<:Union{Nothing,Statement}} <: Statement
     lossless_node::LosslessTrees.LosslessInnerNode
     condition::C
@@ -324,7 +330,7 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
         name, initializer = children
         name, initializer = to_identifier(name), to_expression(initializer)
         return VariableDeclaration(lossless_node, name, initializer)
-    elseif k == K"fun_decl_statement"
+    elseif k ∈ KSet"fun_decl_statement method_decl_statement"
         name = children[1]
         parameters = children[2:end-1]
         body = children[end]
@@ -333,6 +339,13 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
         parameters = to_identifier.(parameters)
         body = to_statement(body)
         return FunctionDeclaration(lossless_node, name, parameters, body)
+    elseif k == K"class_decl_statement"
+        name = children[1]
+        methods = children[2:end]
+        @assert all([SyntaxKinds.kind(m) == K"method_decl_statement" for m in methods])
+        name = to_identifier(name)
+        methods = to_statement.(methods)
+        return ClassDeclaration(lossless_node, name, methods)
     elseif k == K"if_statement"
         @assert length(children) == 3
         condition, then_statement, else_statement = children

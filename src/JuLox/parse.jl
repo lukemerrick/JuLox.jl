@@ -248,7 +248,9 @@ function parse_declaration(parser::Parser)
     if k == K"var"
         parse_var_declaration(parser)
     elseif k == K"fun"
-        parse_function_declaration(parser)
+        parse_function_declaration(parser, K"fun_decl_statement")
+    elseif k == K"class"
+        parse_class_declaration(parser)
     else
         parse_statement(parser)
     end
@@ -274,12 +276,13 @@ function parse_var_declaration(parser::Parser)
     emit(parser, mark, K"var_decl_statement")
 end
 
-function parse_function_declaration(parser::Parser)
+function parse_function_declaration(parser::Parser, kind::SyntaxKinds.Kind)
+    @assert kind ∈ KSet"fun_decl_statement method_decl_statement"
     mark = position(parser)
     bump(parser)  # K"fun" token
 
     # Parse the identifier.
-    if consume(parser, K"Identifier", K"ErrorInvalidMethodOrFunctionIdentifier")
+    if consume(parser, K"Identifier", K"ErrorInvalidIdentifier")
 
         # Consume the open parenthesis.
         consume(parser, K"(", K"ErrorDeclarationMissingOpenParenthesis")
@@ -288,7 +291,7 @@ function parse_function_declaration(parser::Parser)
         n_args = 0
         if peek(parser) != K")"
             while true  # Do-while loop.
-                consume(parser, K"Identifier", K"ErrorInvalidParameterIdentifier")
+                consume(parser, K"Identifier", K"ErrorInvalidIdentifier")
                 n_args += 1
                 peek(parser) != K"," && break
                 bump(parser)  # Take the comma.
@@ -309,7 +312,24 @@ function parse_function_declaration(parser::Parser)
             parse_block(parser)
         end
     end
-    emit(parser, mark, K"fun_decl_statement")
+    emit(parser, mark, kind)
+end
+
+function parse_class_declaration(parser::Parser)
+    mark = position(parser)
+    bump(parser)  # K"class" token
+
+    # Parse the identifier.
+    if consume(parser, K"Identifier", K"ErrorInvalidIdentifier")
+        # Parse Parse the body
+        if consume(parser, K"{", K"ErrorDeclarationMissingOpenBraces")
+            while peek(parser) ∉ KSet"} EndMarker"
+                parse_function_declaration(parser, K"method_decl_statement")
+            end
+            consume(parser, K"}", K"ErrorDeclarationMissingClosingBraces")
+        end
+    end
+    emit(parser, mark, K"class_decl_statement")
 end
 
 function parse_statement(parser::Parser)
