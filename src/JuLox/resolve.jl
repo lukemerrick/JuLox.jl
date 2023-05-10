@@ -254,6 +254,11 @@ function analyze(state::ResolverState, node::LossyTrees.Call)
     return nothing
 end
 
+function analyze(state::ResolverState, node::LossyTrees.Get)
+    analyze(state, node.object)
+    return nothing
+end
+
 function analyze(state::ResolverState, node::LossyTrees.Grouping)
     analyze(state, node.expression)
     return nothing

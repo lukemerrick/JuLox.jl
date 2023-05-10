@@ -592,30 +592,44 @@ function parse_call(parser::Parser)
     # Start with the primary, which could evaluate to a function.
     parse_primary(parser)
 
-    # Parse zero or more parenthetical expressions representing calls.
-    while peek(parser) == K"("
-        # Consume the open parenthesis.
-        bump(parser)
+    # Parse zero or more parenthetical expressions representing gets or calls.
+    while true
+        k = peek(parser)
+        if k == K"("  # Case 1: Call.
+            # Consume the open parenthesis.
+            bump(parser)
 
-        # Consume the argument list.
-        n_args = 0
-        if peek(parser) != K")"
-            while true  # Do-while loop.
-                parse_expression(parser)
-                n_args += 1
-                peek(parser) != K"," && break
-                bump(parser)  # Take the comma.
+            # Consume the argument list.
+            n_args = 0
+            if peek(parser) != K")"
+                while true  # Do-while loop.
+                    parse_expression(parser)
+                    n_args += 1
+                    peek(parser) != K"," && break
+                    bump(parser)  # Take the comma.
+                end
             end
+
+            # Consume the closing parenthesis.
+            consume(parser, K")", K"ErrorCallArgsMissingClosingParenthesis")
+
+            # Emit a call event covering from start of left through end of right.
+            emit(parser, mark, K"call")
+
+            # Emit an error event if we exceeded the maximum argument count.
+            n_args >= 255 && emit(parser, mark, K"ErrorExceedMaxArguments")
+        elseif k == K"."  # Case 2: Get.
+            # Consume the dot.
+            bump(parser)
+
+            # Consume the property identifier.
+            consume(parser, K"Identifier", K"ErrorMissingPropertyName")
+
+            # Emit a get event covering from start of left through end of right.
+            emit(parser, mark, K"get")
+        else
+            break
         end
-
-        # Consume the closing parenthesis.
-        consume(parser, K")", K"ErrorCallArgsMissingClosingParenthesis")
-
-        # Emit a call event covering from start of left through end of right.
-        emit(parser, mark, K"call")
-
-        # Emit an error event if we exceeded the maximum argument count.
-        n_args >= 255 && emit(parser, mark, K"ErrorExceedMaxArguments")
     end
 end
 

@@ -140,15 +140,16 @@ abstract type Callable end
 
 # Callables must implement `arity` and `_call` and `string`!
 
-# Be strict about type of values allowed as arguments.
-ArgType = Union{String,Float64,Symbol,String,Callable}
+# TODO: Be strict about type of values allowed as arguments etc.
+# LoxValue = Union{String,Float64,Symbol,String,Callable,LoxInstance}
+LoxValue = Any
 
-function call(state::InterpreterState, callee::Callable, args::Vector{ArgType}, code_position::Int)
+function call(state::InterpreterState, callee::Callable, args::Vector{LoxValue}, code_position::Int)
     # Validate that arguments match callee arity.
     if arity(callee) != length(args)
         message = (
             "Callable $(string(callee)) expected $(arity(callee)) arguments but got " *
-            "$(length(args))"
+            "$(length(args))."
         )
         throw(RuntimeError(message, code_position))
     end
@@ -169,7 +170,7 @@ end
 
 Base.string(fn::NativeFunction) = fn.name
 arity(fn::NativeFunction) = fn.arity
-_call(state::InterpreterState, callee::NativeFunction, args::Vector{ArgType}) = callee.implementation(args)
+_call(state::InterpreterState, callee::NativeFunction, args::Vector{LoxValue}) = callee.implementation(args)
 
 const CLOCK_NATIVE_FN = NativeFunction("clock", 0, args -> time())
 
@@ -182,7 +183,7 @@ struct LoxFunction <: Callable
     closure::Environment
 end
 
-function _call(state::InterpreterState, callee::LoxFunction, args::Vector{ArgType})
+function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxValue})
     # Function execution happens in a new environment, with the function's closure as the
     # parent environment.
     result = enter_environment(state, Environment(callee.closure)) do fn_state
@@ -213,26 +214,35 @@ arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 struct LoxClass <: Callable
     name::Symbol
+    fields::Dict{Symbol,LoxValue}
 
     function LoxClass(node::LossyTrees.ClassDeclaration)
         return new(node.name.symbol)
     end
 end
 
-struct LoxInstance
-    class::LoxClass
-end
-
-
-function _call(state::InterpreterState, callee::LoxClass, args::Vector{ArgType})
+function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue})
     return LoxInstance(callee)
 end
 
 
 Base.string(c::LoxClass) = "<class $(string(c.name))>"
-Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
 Base.show(c::LoxClass) = string(c)
 arity(c::LoxClass) = 0
+
+
+struct LoxInstance
+    class::LoxClass
+end
+
+function Base.get(instance::LoxInstance, name::Symbol, code_position::Int)
+    if !haskey(instance.fields, name)
+        throw(RuntimeError("Undefined property '$(name)'.", code_position))
+    end
+    return get(instance.fields, name)
+end
+Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
+
 
 
 #-------------------------------------------------------------------------------
@@ -427,10 +437,19 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.Call)
     callee = evaluate(state, node.callee)
     if !isa(callee, Callable)
-        throw(RuntimeError("Can only call functions and classess", position(node.callee)))
+        throw(RuntimeError("Can only call functions and classess.", position(node.callee)))
     end
-    arguments = ArgType[evaluate(state, arg) for arg in node.arguments]
+    arguments = LoxValue[evaluate(state, arg) for arg in node.arguments]
     return call(state, callee, arguments, position(node))
+end
+
+
+function evaluate(state::InterpreterState, node::LossyTrees.Get)
+    object = evaluate(state, node.object)
+    if !isa(object, LoxInstance)
+        throw(RuntimeError("Only instances have properties.", position(node.object)))
+    end
+    return get(object, node.name.symbol)
 end
 
 

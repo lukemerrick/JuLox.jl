@@ -199,6 +199,13 @@ struct Call{C<:Expression} <: Expression
     arguments::Vector{<:Expression}
 end
 
+struct Get{E<:Expression} <: Expression
+    lossless_node::LosslessTrees.LosslessInnerNode
+    object::E
+    name::Identifier
+end
+
+
 function to_expression(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_expression(k) "$k should be an expression kind"
@@ -244,6 +251,10 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     elseif k == K"call"
         callee, args... = to_expression.(children)
         return Call(lossless_node, callee, args)
+    elseif k == K"get"
+        @assert length(children) == 2
+        object, name = children
+        return Get(lossless_node, to_expression(object), to_identifier(name))
     end
 
     # Unreachable.

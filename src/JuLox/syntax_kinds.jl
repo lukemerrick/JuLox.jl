@@ -43,6 +43,7 @@ const _kind_names =
         "ErrorDeclarationMissingOpenBraces"
         "ErrorDeclarationMissingClosingBraces"
         "ErrorParametersMissingClosingParenthesis"
+        "ErrorMissingPropertyName"
         # Generic error
         "error"
     "END_ERRORS"
@@ -106,6 +107,7 @@ const _kind_names =
 
     "BEGIN_SYNTAX_KINDS"
         "BEGIN_EXPRESSIONS"
+            "get"
             "call"
             "assignment"
             "grouping"
@@ -291,7 +293,8 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorDeclarationMissingOpenParenthesis" => "expect '(' after function/method name",
     K"ErrorDeclarationMissingOpenBraces" => "expect '{' before body",
     K"ErrorDeclarationMissingClosingBraces" => "expect '{' after body",
-    K"ErrorParametersMissingClosingParenthesis" => "expect ')' after parameters.",
+    K"ErrorParametersMissingClosingParenthesis" => "expect ')' after parameters",
+    K"ErrorMissingPropertyName" => "expect property name after '.'",
 )
 
 function error_description(error_kind::Kind)
