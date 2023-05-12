@@ -199,11 +199,19 @@ struct Call{C<:Expression} <: Expression
     arguments::Vector{<:Expression}
 end
 
-struct Get{E<:Expression} <: Expression
+struct Get{O<:Expression} <: Expression
     lossless_node::LosslessTrees.LosslessInnerNode
-    object::E
+    object::O
     name::Identifier
 end
+
+struct Set{O<:Expression,V<:Expression} <: Expression
+    lossless_node::LosslessTrees.LosslessInnerNode
+    object::O
+    name::Identifier
+    value::V
+end
+
 
 
 function to_expression(lossless_node::LosslessTrees.LosslessNode)
@@ -246,15 +254,23 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         name, value = children
         @assert SyntaxKinds.kind(name) == K"variable"
         # NOTE: We unwrap the `Variable` to the child `Identifier` here, slightly flattening
-        # the syntax tree.
+        # the syntax tree for easier interpreting.
         return Assign(lossless_node, to_expression(name).name, to_expression(value))
     elseif k == K"call"
         callee, args... = to_expression.(children)
         return Call(lossless_node, callee, args)
-    elseif k == K"get"
+    elseif k == K"accessor"
         @assert length(children) == 2
         object, name = children
         return Get(lossless_node, to_expression(object), to_identifier(name))
+    elseif k == K"set"
+        @assert length(children) == 2
+        accessor, value = children
+        @assert SyntaxKinds.kind(accessor) == K"accessor"
+        # NOTE: We form and then unwrap the `Get` to the child `Identifier` here, slightly
+        # flattening the syntax tree.
+        accessor_lossless::Get = to_expression(accessor)
+        return Set(lossless_node, accessor_lossless.object, accessor_lossless.name, to_expression(value))
     end
 
     # Unreachable.

@@ -518,22 +518,31 @@ function parse_assignment(parser::Parser)
 
     # Check for a right side.
     if peek(parser) == K"="
-        mark2 = bump(parser)
+        left_last_token_index = position(parser).token_index
 
-        # Parse the right side.
+        # Bump the equals sign.
+        bump(parser)
+
+        # Parse the right side expression.
         parse_expression(parser)
 
-        # Look back to left side of assignment to ensure it's an identifier.
-        # TODO: Ensure this isn't too hacky compared to the JLox approach.
+        # Look back to left side of assignment to ensure it's an identifier or instance property.
         left_side_tokens = [
-            t for t in parser._parsed_tokens[mark.token_index+1:mark2.token_index] if !SyntaxKinds.is_whitespace(SyntaxKinds.kind(t))
+            t for t in parser._parsed_tokens[mark.token_index+1:left_last_token_index]
+            if !SyntaxKinds.is_whitespace(SyntaxKinds.kind(t))
         ]
-        @assert SyntaxKinds.kind(left_side_tokens[end]) == K"="
-        if length(left_side_tokens) != 2 || SyntaxKinds.kind(left_side_tokens[1]) != K"Identifier"
-            emit(parser, mark, K"ErrorInvalidAssigmentTarget")
-        else
-            # Emit the assignment.
+        if length(left_side_tokens) == 1 && SyntaxKinds.kind(only(left_side_tokens)) == K"Identifier"
+            # This is an assigment. Emit an event for it.
             emit(parser, mark, K"assignment")
+        elseif (
+            length(left_side_tokens) > 2
+            && SyntaxKinds.kind(left_side_tokens[end-1]) == K"."
+            && SyntaxKinds.kind(left_side_tokens[end]) == K"Identifier"
+        )
+            # This is a set operation on an instance property. Emit an event for it.
+            emit(parser, mark, K"set")
+        else
+            emit(parser, mark, K"ErrorInvalidAssigmentTarget")
         end
     end
 end
@@ -618,7 +627,7 @@ function parse_call(parser::Parser)
 
             # Emit an error event if we exceeded the maximum argument count.
             n_args >= 255 && emit(parser, mark, K"ErrorExceedMaxArguments")
-        elseif k == K"."  # Case 2: Get.
+        elseif k == K"."  # Case 2: Get or possibly set. We call this "accessor".
             # Consume the dot.
             bump(parser)
 
@@ -626,7 +635,7 @@ function parse_call(parser::Parser)
             consume(parser, K"Identifier", K"ErrorMissingPropertyName")
 
             # Emit a get event covering from start of left through end of right.
-            emit(parser, mark, K"get")
+            emit(parser, mark, K"accessor")
         else
             break
         end

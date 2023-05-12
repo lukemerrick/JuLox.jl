@@ -107,7 +107,8 @@ const _kind_names =
 
     "BEGIN_SYNTAX_KINDS"
         "BEGIN_EXPRESSIONS"
-            "get"
+            "accessor"
+            "set"
             "call"
             "assignment"
             "grouping"

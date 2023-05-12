@@ -65,21 +65,25 @@ function environment_at(env::Environment, distance::Union{Nothing,Int})
     end
 end
 
-function define!(environment::Environment, name::Symbol, value::Any)
+function set!(environment::Environment, name::Symbol, value::Any)
     values(environment)[name] = value
 end
 
-function assign!(environment::Environment, distance::Union{Nothing,Int}, name::Symbol, value::Any)
+function assign!(environment::Environment, distance::Union{Nothing,Int}, name::Symbol, value::Any, code_pos::Int)
     target_env = environment_at(environment, distance)
     target_values = values(target_env)
-    @assert haskey(target_values, name) "Cannot find '$(name)' in $(target_env)"
+    if !haskey(target_values, name)
+        throw(RuntimeError("Undefined variable '$(name)'", code_pos))
+    end
     target_values[name] = value
 end
 
-function Base.get(environment::Environment, distance::Union{Nothing,Int}, name::Symbol)
+function Base.get(environment::Environment, distance::Union{Nothing,Int}, name::Symbol, code_pos::Int)
     target_env = environment_at(environment, distance)
     target_values = values(target_env)
-    @assert haskey(target_values, name) "Cannot find '$(name)' in $(target_env)"
+    if !haskey(target_values, name)
+        throw(RuntimeError("Undefined variable '$(name)'", code_pos))
+    end
     return target_values[name]
 end
 
@@ -103,7 +107,7 @@ end
 function initialize_interpreter()
     # Initialize an empty global environment and define the native function.
     global_environment = Environment(nothing)
-    define!(global_environment, :clock, CLOCK_NATIVE_FN)
+    set!(global_environment, :clock, CLOCK_NATIVE_FN)
 
     # Initialize an empty variable resolution map.
     local_scope_map = Dict{LossyTrees.LossyNode,Int}()
@@ -189,7 +193,7 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
     result = enter_environment(state, Environment(callee.closure)) do fn_state
         # Define all parameter-named variables with argument-defined values.
         for (identifier, arg) in zip(callee.declaration.parameters, args)
-            define!(fn_state.environment, identifier.symbol, arg)
+            set!(fn_state.environment, identifier.symbol, arg)
         end
 
         # Try-catch so that we can interpret return statements via exceptions.
@@ -214,7 +218,6 @@ arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 struct LoxClass <: Callable
     name::Symbol
-    fields::Dict{Symbol,LoxValue}
 
     function LoxClass(node::LossyTrees.ClassDeclaration)
         return new(node.name.symbol)
@@ -222,7 +225,7 @@ struct LoxClass <: Callable
 end
 
 function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue})
-    return LoxInstance(callee)
+    return LoxInstance(callee, Dict{Symbol,LoxValue}())
 end
 
 
@@ -233,16 +236,21 @@ arity(c::LoxClass) = 0
 
 struct LoxInstance
     class::LoxClass
+    fields::Dict{Symbol,LoxValue}
 end
 
 function Base.get(instance::LoxInstance, name::Symbol, code_position::Int)
     if !haskey(instance.fields, name)
         throw(RuntimeError("Undefined property '$(name)'.", code_position))
     end
-    return get(instance.fields, name)
+    return instance.fields[name]
 end
 Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
 
+function set!(instance::LoxInstance, name::Symbol, value::Any)
+    instance.fields[name] = value
+    return nothing
+end
 
 
 #-------------------------------------------------------------------------------
@@ -303,21 +311,21 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.VariableDeclaration)
     initial_value = evaluate(state, node.initializer)
     identifier = node.name
-    define!(state.environment, identifier.symbol, initial_value)
+    set!(state.environment, identifier.symbol, initial_value)
     return nothing
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
     identifier = node.name
-    define!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
+    set!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
     return nothing
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
     identifier = node.name
     # TODO: Understand why two-step initialization is required.
-    define!(state.environment, identifier.symbol, nothing)
-    assign!(state.environment, 0, identifier.symbol, LoxClass(node))
+    set!(state.environment, identifier.symbol, nothing)
+    assign!(state.environment, 0, identifier.symbol, LoxClass(node), position(identifier))
     return nothing
 end
 
@@ -355,14 +363,14 @@ function evaluate(state::InterpreterState, node::LossyTrees.Assign)
     value = evaluate(state, node.value)
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
-    assign!(state.environment, distance, identifier.symbol, value)
+    assign!(state.environment, distance, identifier.symbol, value, position(identifier))
     return nothing
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.Variable)
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
-    return get(state.environment, distance, identifier.symbol)
+    return get(state.environment, distance, identifier.symbol, position(identifier))
 end
 
 function evaluate(node::LossyTrees.Literal)
@@ -449,7 +457,18 @@ function evaluate(state::InterpreterState, node::LossyTrees.Get)
     if !isa(object, LoxInstance)
         throw(RuntimeError("Only instances have properties.", position(node.object)))
     end
-    return get(object, node.name.symbol)
+    return get(object, node.name.symbol, position(node.name))
+end
+
+
+function evaluate(state::InterpreterState, node::LossyTrees.Set)
+    object = evaluate(state, node.object)
+    if !isa(object, LoxInstance)
+        throw(RuntimeError("Only instances have fields.", position(node.object)))
+    end
+    value = evaluate(state, node.value)
+    set!(object, node.name.symbol, value)
+    return nothing
 end
 
 
