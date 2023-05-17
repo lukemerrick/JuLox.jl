@@ -148,7 +148,7 @@ end
 function to_identifier(lossless_node::LosslessTrees.LosslessLeafNode)
     k = SyntaxKinds.kind(lossless_node)
     text = Tokenize.text(lossless_node)
-    @assert k == K"Identifier" "Expected identifier but got $(k)"
+    @assert k ∈ KSet"Identifier this" "Expected identifier but got $(k)"
     return Identifier(lossless_node, Symbol(text))
 end
 
@@ -156,6 +156,11 @@ end
 # Inner node expressions.
 
 abstract type Callable <: Expression end
+
+struct This <: Expression
+    lossless_node::LosslessTrees.LosslessInnerNode
+    name::Identifier
+end
 
 struct Variable <: Expression
     lossless_node::LosslessTrees.LosslessInnerNode
@@ -244,11 +249,13 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         left, operator, right = children
         return Logical(lossless_node, to_operator(operator), to_expression(left), to_expression(right))
     elseif k == K"grouping"
-        @assert length(children) == 1
-        return Grouping(lossless_node, to_expression(children[1]))
+        return Grouping(lossless_node, to_expression(only(children)))
     elseif k == K"variable"
+        return Variable(lossless_node, to_identifier(only(children)))
+    elseif k == K"this_expression"
         @assert length(children) == 1
-        return Variable(lossless_node, to_identifier(children[1]))
+        @assert SyntaxKinds.kind(children[1]) == K"this" 
+        return This(lossless_node, to_identifier(only(children)))
     elseif k == K"assignment"
         @assert length(children) == 2
         name, value = children
@@ -344,14 +351,11 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
     if k == K"block"
         return Block(lossless_node, to_statement.(children))
     elseif k == K"expression_statement"
-        @assert length(children) == 1
-        return ExpressionStatement(lossless_node, to_expression(children[1]))
+        return ExpressionStatement(lossless_node, to_expression(only(children)))
     elseif k == K"return_statement"
-        @assert length(children) == 1
-        return ReturnStatement(lossless_node, to_expression(children[1]))
+        return ReturnStatement(lossless_node, to_expression(only(children)))
     elseif k == K"print_statement"
-        @assert length(children) == 1
-        return Print(lossless_node, to_expression(children[1]))
+        return Print(lossless_node, to_expression(only(children)))
     elseif k == K"var_decl_statement"
         @assert length(children) == 2
         name, initializer = children

@@ -65,7 +65,7 @@ function environment_at(env::Environment, distance::Union{Nothing,Int})
     end
 end
 
-function set!(environment::Environment, name::Symbol, value::Any)
+function define!(environment::Environment, name::Symbol, value::Any)
     values(environment)[name] = value
 end
 
@@ -101,21 +101,21 @@ Base.show(io::IO, environment::Environment) = show(io, string(environment))
 
 mutable struct InterpreterState
     environment::Environment
-    local_scope_map::Dict{LossyTrees.LossyNode,Int}
+    local_scope_map::Dict{LossyTrees.Expression,Int}
 end
 
 function initialize_interpreter()
     # Initialize an empty global environment and define the native function.
     global_environment = Environment(nothing)
-    set!(global_environment, :clock, CLOCK_NATIVE_FN)
+    define!(global_environment, :clock, CLOCK_NATIVE_FN)
 
     # Initialize an empty variable resolution map.
-    local_scope_map = Dict{LossyTrees.LossyNode,Int}()
+    local_scope_map = Dict{LossyTrees.Expression,Int}()
 
     return InterpreterState(global_environment, local_scope_map)
 end
 
-function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.LossyNode,Int})
+function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.Expression,Int})
     merge!(state.local_scope_map, new_scope_map)
     return nothing
 end
@@ -193,7 +193,7 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
     result = enter_environment(state, Environment(callee.closure)) do fn_state
         # Define all parameter-named variables with argument-defined values.
         for (identifier, arg) in zip(callee.declaration.parameters, args)
-            set!(fn_state.environment, identifier.symbol, arg)
+            define!(fn_state.environment, identifier.symbol, arg)
         end
 
         # Try-catch so that we can interpret return statements via exceptions.
@@ -239,13 +239,20 @@ struct LoxInstance
     fields::Dict{Symbol,LoxValue}
 end
 
+function bind(instance::LoxInstance, method::LoxFunction)
+    binding_env = Environment(method.closure)
+    define!(binding_env, :this, instance)
+    bound_function = LoxFunction(method.declaration, binding_env)
+    return bound_function
+end
+
 function Base.get(instance::LoxInstance, name::Symbol, code_position::Int)
     # Check fields first.
     haskey(instance.fields, name) && return instance.fields[name]
 
     # Then check class methods.
     method = find_method(instance.class, name)
-    !isnothing(method) && return method
+    !isnothing(method) && return bind(instance, method)
 
     # If we find nothing, that's an error.
     throw(RuntimeError("Undefined property '$(name)'.", code_position))
@@ -316,20 +323,20 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.VariableDeclaration)
     initial_value = evaluate(state, node.initializer)
     identifier = node.name
-    set!(state.environment, identifier.symbol, initial_value)
+    define!(state.environment, identifier.symbol, initial_value)
     return nothing
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
     identifier = node.name
-    set!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
+    define!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
     return nothing
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
     identifier = node.name
     # TODO: Understand why two-step initialization is required.
-    set!(state.environment, identifier.symbol, nothing)
+    define!(state.environment, identifier.symbol, nothing)
     class_name = node.name.symbol
     class_methods = Dict{Symbol,LoxFunction}(
         decl.name.symbol => LoxFunction(decl, state.environment)
@@ -378,7 +385,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.Assign)
     return nothing
 end
 
-function evaluate(state::InterpreterState, node::LossyTrees.Variable)
+function evaluate(state::InterpreterState, node::Union{LossyTrees.Variable,LossyTrees.This})
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
     return get(state.environment, distance, identifier.symbol, position(identifier))

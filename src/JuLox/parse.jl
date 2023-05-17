@@ -646,7 +646,10 @@ function parse_primary(parser::Parser)
     SyntaxKinds.is_error(peek(parser)) && bump(parser)  # Pass through errors.
     mark = position(parser)
     k = peek(parser)
-    if k == K"Identifier"
+    if k == K"this"
+        bump(parser)
+        emit(parser, mark, K"this_expression")
+    elseif k == K"Identifier"
         bump(parser)
         emit(parser, mark, K"variable")
     elseif k ∈ KSet"false true nil Number String"

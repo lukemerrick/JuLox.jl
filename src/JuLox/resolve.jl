@@ -15,26 +15,25 @@ _assert_valid_function_scope(current_function::Symbol) = @assert current_functio
 
 struct ResolverState
     scopes::Vector{Scope}
-    locals::Dict{LossyTrees.LossyNode,Int}
+    locals::Dict{LossyTrees.Expression,Int}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
     current_function::Ref{Symbol}
 
     function ResolverState()
-        return new(Scope[], Dict{LossyTrees.LossyNode,Int}(), SyntaxValidation.Diagnostic[], Ref(:none))
+        return new(Scope[], Dict{LossyTrees.Expression,Int}(), SyntaxValidation.Diagnostic[], Ref(:none))
     end
 end
 
 current_function(state::ResolverState) = state.current_function[]
 
-function begin_scope!(state::ResolverState)
+
+function enter_scope(f::Function, state::ResolverState)
     push!(state.scopes, Scope())
-    return nothing
+    result = f(state)
+    pop!(state.scopes)
+    return result
 end
 
-function end_scope!(state::ResolverState)
-    pop!(state.scopes)
-    return nothing
-end
 
 function declare!(state::ResolverState, name::LossyTrees.Identifier)
     # Do nothing in the global scope.
@@ -84,7 +83,7 @@ end
 
 function resolve(
     state::ResolverState,
-    node::Union{LossyTrees.Variable,LossyTrees.Assign},
+    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This},
     depth::Int
 )
     state.locals[node] = depth
@@ -92,7 +91,7 @@ end
 
 function resolve_local(
     state::ResolverState,
-    node::Union{LossyTrees.Variable,LossyTrees.Assign},
+    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This},
     symbol::Symbol
 )
     for (i, scope) in enumerate(state.scopes[end:-1:1])
@@ -109,9 +108,9 @@ end
 # Analysis triggering resolution.
 
 function analyze(state::ResolverState, node::LossyTrees.Block)
-    begin_scope!(state)
-    analyze.(Ref(state), node.statements)
-    end_scope!(state)
+    enter_scope(state) do state
+        analyze.(Ref(state), node.statements)
+    end
     return nothing
 end
 
@@ -143,6 +142,11 @@ function analyze(state::ResolverState, node::LossyTrees.Variable)
     return nothing
 end
 
+function analyze(state::ResolverState, node::LossyTrees.This)
+    resolve_local(state, node, :this)
+    return nothing
+end
+
 function analyze(state::ResolverState, node::LossyTrees.Assign)
     # Analyze the expression assigned to the variable.
     analyze(state, node.value)
@@ -169,10 +173,17 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
     declare!(state, node.name)
     define!(state, node.name)
 
-    # Analyze the methods.
+    # Set he function state to :method (for context-specific validity checks).
     enter_function_state(state, :method) do state
-        for method_definition in node.methods
-            analyze_function(state, method_definition)
+
+        # Handle the `this` keyword by entering a new scope defining `this` in that scope.
+        enter_scope(state) do state
+            last(state.scopes)[:this] = true
+
+            # Analyze the method definitions.
+            for method_definition in node.methods
+                analyze_function(state, method_definition)
+            end
         end
     end
 
@@ -181,19 +192,17 @@ end
 
 function analyze_function(state::ResolverState, node::LossyTrees.FunctionDeclaration)
     # Function declarations introduce a new scope.
-    begin_scope!(state)
+    enter_scope(state) do state
 
-    # Deal with the parameters.
-    for param in node.parameters
-        declare!(state, param)
-        define!(state, param)
+        # Deal with the parameters.
+        for param in node.parameters
+            declare!(state, param)
+            define!(state, param)
+        end
+
+        # Deal with the body.
+        analyze(state, node.body)
     end
-
-    # Deal with the body.
-    analyze(state, node.body)
-
-    # Pop scope.
-    end_scope!(state)
 end
 
 #-------------------------------------------------------------------------------
