@@ -218,16 +218,16 @@ arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 struct LoxClass <: Callable
     name::Symbol
-
-    function LoxClass(node::LossyTrees.ClassDeclaration)
-        return new(node.name.symbol)
-    end
+    methods::Dict{Symbol,LoxFunction}
 end
 
 function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue})
     return LoxInstance(callee, Dict{Symbol,LoxValue}())
 end
 
+function find_method(class::LoxClass, name::Symbol)
+    return get(class.methods, name, nothing)
+end
 
 Base.string(c::LoxClass) = "<class $(string(c.name))>"
 Base.show(c::LoxClass) = string(c)
@@ -240,10 +240,15 @@ struct LoxInstance
 end
 
 function Base.get(instance::LoxInstance, name::Symbol, code_position::Int)
-    if !haskey(instance.fields, name)
-        throw(RuntimeError("Undefined property '$(name)'.", code_position))
-    end
-    return instance.fields[name]
+    # Check fields first.
+    haskey(instance.fields, name) && return instance.fields[name]
+
+    # Then check class methods.
+    method = find_method(instance.class, name)
+    !isnothing(method) && return method
+
+    # If we find nothing, that's an error.
+    throw(RuntimeError("Undefined property '$(name)'.", code_position))
 end
 Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
 
@@ -325,7 +330,13 @@ function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
     identifier = node.name
     # TODO: Understand why two-step initialization is required.
     set!(state.environment, identifier.symbol, nothing)
-    assign!(state.environment, 0, identifier.symbol, LoxClass(node), position(identifier))
+    class_name = node.name.symbol
+    class_methods = Dict{Symbol,LoxFunction}(
+        decl.name.symbol => LoxFunction(decl, state.environment)
+        for decl in node.methods
+    )
+    class = LoxClass(class_name, class_methods)
+    assign!(state.environment, 0, identifier.symbol, class, position(identifier))
     return nothing
 end
 

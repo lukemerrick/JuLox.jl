@@ -11,7 +11,7 @@ using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
 # Type alias.
 Scope = Dict{Symbol,Bool}
 
-_assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function)
+_assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method)
 
 struct ResolverState
     scopes::Vector{Scope}
@@ -169,7 +169,12 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
     declare!(state, node.name)
     define!(state, node.name)
 
-    # TODO: Analyze the methods.
+    # Analyze the methods.
+    enter_function_state(state, :method) do state
+        for method_definition in node.methods
+            analyze_function(state, method_definition)
+        end
+    end
 
     return nothing
 end

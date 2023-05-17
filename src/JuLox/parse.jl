@@ -279,7 +279,7 @@ end
 function parse_function_declaration(parser::Parser, kind::SyntaxKinds.Kind)
     @assert kind ∈ KSet"fun_decl_statement method_decl_statement"
     mark = position(parser)
-    bump(parser)  # K"fun" token
+    kind == K"fun_decl_statement" && bump(parser)  # K"fun" token
 
     # Parse the identifier.
     if consume(parser, K"Identifier", K"ErrorInvalidIdentifier")
