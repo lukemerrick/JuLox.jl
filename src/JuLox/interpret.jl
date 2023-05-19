@@ -222,7 +222,14 @@ struct LoxClass <: Callable
 end
 
 function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue})
-    return LoxInstance(callee, Dict{Symbol,LoxValue}())
+    instance = LoxInstance(callee, Dict{Symbol,LoxValue}())
+    initializer = find_method(callee, :init)
+    if !isnothing(initializer)
+        bound_initializer = bind(instance, initializer)
+        code_position = position(initializer.declaration)
+        call(state, bound_initializer, args, code_position)
+    end
+    return instance
 end
 
 function find_method(class::LoxClass, name::Symbol)
@@ -231,8 +238,11 @@ end
 
 Base.string(c::LoxClass) = "<class $(string(c.name))>"
 Base.show(c::LoxClass) = string(c)
-arity(c::LoxClass) = 0
 
+function arity(c::LoxClass)
+    initializer = find_method(c, :init)
+    return isnothing(initializer) ? 0 : arity(initializer)
+end
 
 struct LoxInstance
     class::LoxClass
