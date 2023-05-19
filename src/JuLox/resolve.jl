@@ -12,15 +12,17 @@ using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
 Scope = Dict{Symbol,Bool}
 
 _assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method)
+_assert_valid_class_type(current_class_type::Symbol) = @assert current_class_type ∈ (:none, :class)
 
 struct ResolverState
     scopes::Vector{Scope}
     locals::Dict{LossyTrees.Expression,Int}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
     current_function::Ref{Symbol}
+    current_class::Ref{Symbol}
 
     function ResolverState()
-        return new(Scope[], Dict{LossyTrees.Expression,Int}(), SyntaxValidation.Diagnostic[], Ref(:none))
+        return new(Scope[], Dict{LossyTrees.Expression,Int}(), SyntaxValidation.Diagnostic[], Ref(:none), Ref(:none))
     end
 end
 
@@ -74,6 +76,16 @@ function enter_function_state(f::Function, state::ResolverState, current_functio
     state.current_function[] = current_function
     result = f(state)
     state.current_function[] = original_function
+    return result
+end
+
+
+function enter_class_state(f::Function, state::ResolverState, current_class::Symbol)
+    _assert_valid_class_type(current_class)
+    original_class = state.current_class[]
+    state.current_class[] = current_class
+    result = f(state)
+    state.current_class[] = original_class
     return result
 end
 
@@ -143,6 +155,12 @@ function analyze(state::ResolverState, node::LossyTrees.Variable)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.This)
+    if state.current_class[] == :none
+        diagnostic = SyntaxValidation.Diagnostic(
+            node.lossless_node, "can't use 'this' outside a class"
+        )
+        push!(state.diagnostics, diagnostic)
+    end
     resolve_local(state, node, :this)
     return nothing
 end
@@ -169,20 +187,22 @@ function analyze(state::ResolverState, node::LossyTrees.FunctionDeclaration)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
-    # Class names are bound to the surrounding scope.
-    declare!(state, node.name)
-    define!(state, node.name)
+    enter_class_state(state, :class) do state
+        # Class names are bound to the surrounding scope.
+        declare!(state, node.name)
+        define!(state, node.name)
 
-    # Set he function state to :method (for context-specific validity checks).
-    enter_function_state(state, :method) do state
+        # Set he function state to :method (for context-specific validity checks).
+        enter_function_state(state, :method) do state
 
-        # Handle the `this` keyword by entering a new scope defining `this` in that scope.
-        enter_scope(state) do state
-            last(state.scopes)[:this] = true
+            # Handle the `this` keyword by entering a new scope defining `this` in that scope.
+            enter_scope(state) do state
+                last(state.scopes)[:this] = true
 
-            # Analyze the method definitions.
-            for method_definition in node.methods
-                analyze_function(state, method_definition)
+                # Analyze the method definitions.
+                for method_definition in node.methods
+                    analyze_function(state, method_definition)
+                end
             end
         end
     end
