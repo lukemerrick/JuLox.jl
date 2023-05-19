@@ -185,7 +185,10 @@ const CLOCK_NATIVE_FN = NativeFunction("clock", 0, args -> time())
 struct LoxFunction <: Callable
     declaration::LossyTrees.FunctionDeclaration
     closure::Environment
+    is_initializer::Bool
 end
+
+get_closured_this(lox_fn::LoxFunction) = get(lox_fn.closure, 0, :this, position(lox_fn.declaration))
 
 function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxValue})
     # Function execution happens in a new environment, with the function's closure as the
@@ -197,14 +200,23 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
         end
 
         # Try-catch so that we can interpret return statements via exceptions.
-        result = nothing
         try
             evaluate(fn_state, callee.declaration.body)
         catch e
             !isa(e, ReturnAsException) && rethrow()
             result = e.value
+            if callee.is_initializer
+                @assert isnothing(result)
+                return get_closured_this(callee)
+            end
+            return result
         end
-        return result
+
+        # If we're in an initizlier, return the instance.
+        if callee.is_initializer
+            return get_closured_this(callee)
+        end
+        return nothing
     end
     return result
 end
@@ -252,7 +264,7 @@ end
 function bind(instance::LoxInstance, method::LoxFunction)
     binding_env = Environment(method.closure)
     define!(binding_env, :this, instance)
-    bound_function = LoxFunction(method.declaration, binding_env)
+    bound_function = LoxFunction(method.declaration, binding_env, method.is_initializer)
     return bound_function
 end
 
@@ -339,7 +351,7 @@ end
 
 function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
     identifier = node.name
-    define!(state.environment, identifier.symbol, LoxFunction(node, state.environment))
+    define!(state.environment, identifier.symbol, LoxFunction(node, state.environment, false))
     return nothing
 end
 
@@ -349,7 +361,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
     define!(state.environment, identifier.symbol, nothing)
     class_name = node.name.symbol
     class_methods = Dict{Symbol,LoxFunction}(
-        decl.name.symbol => LoxFunction(decl, state.environment)
+        decl.name.symbol => LoxFunction(decl, state.environment, decl.name.symbol == :init)
         for decl in node.methods
     )
     class = LoxClass(class_name, class_methods)
@@ -363,7 +375,8 @@ function evaluate(state::InterpreterState, node::LossyTrees.ExpressionStatement)
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.ReturnStatement)
-    throw(ReturnAsException(evaluate(state, node.return_value)))
+    return_value = isnothing(node.return_value) ? nothing : evaluate(state, node.return_value)
+    throw(ReturnAsException(return_value))
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.Print)

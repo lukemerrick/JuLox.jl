@@ -1,7 +1,9 @@
 class Foo {
   init() {
+    print "initializing";
     print this;
   }
 }
 
 var foo = Foo();
+print foo.init();

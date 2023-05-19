@@ -11,7 +11,7 @@ using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
 # Type alias.
 Scope = Dict{Symbol,Bool}
 
-_assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method)
+_assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method, :initializer)
 _assert_valid_class_type(current_class_type::Symbol) = @assert current_class_type ∈ (:none, :class)
 
 struct ResolverState
@@ -27,7 +27,7 @@ struct ResolverState
 end
 
 current_function(state::ResolverState) = state.current_function[]
-
+current_class(state::ResolverState) = state.current_class[]
 
 function enter_scope(f::Function, state::ResolverState)
     push!(state.scopes, Scope())
@@ -155,7 +155,7 @@ function analyze(state::ResolverState, node::LossyTrees.Variable)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.This)
-    if state.current_class[] == :none
+    if current_class(state) == :none
         diagnostic = SyntaxValidation.Diagnostic(
             node.lossless_node, "can't use 'this' outside a class"
         )
@@ -192,15 +192,17 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
         declare!(state, node.name)
         define!(state, node.name)
 
-        # Set he function state to :method (for context-specific validity checks).
-        enter_function_state(state, :method) do state
+        # Handle the `this` keyword by entering a new scope defining `this` in that scope.
+        enter_scope(state) do state
+            last(state.scopes)[:this] = true
 
-            # Handle the `this` keyword by entering a new scope defining `this` in that scope.
-            enter_scope(state) do state
-                last(state.scopes)[:this] = true
+            # Analyze the method definitions.
+            for method_definition in node.methods
 
-                # Analyze the method definitions.
-                for method_definition in node.methods
+                # Set the function state to :method (for context-specific validity checks).
+                # Unless this is an initializer, then set to :initializer.
+                function_type = method_definition.name.symbol == :init ? :initializer : :method
+                enter_function_state(state, function_type) do state
                     analyze_function(state, method_definition)
                 end
             end
@@ -247,7 +249,15 @@ function analyze(state::ResolverState, node::LossyTrees.ReturnStatement)
         )
         push!(state.diagnostics, diagnostic)
     end
-    analyze(state, node.return_value)
+    if !isnothing(node.return_value)
+        if current_function(state) == :initializer
+            diagnostic = SyntaxValidation.Diagnostic(
+                node.lossless_node, "can't return a value from and initializer"
+            )
+            push!(state.diagnostics, diagnostic)
+        end
+        analyze(state, node.return_value)
+    end
     return nothing
 end
 

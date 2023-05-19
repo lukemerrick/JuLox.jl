@@ -226,11 +226,11 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     # Case 1: Leaf node (literal expression or implied missing expression).
     if SyntaxKinds.is_literal(k)
         return to_literal(lossless_node)
-    elseif k ∈ KSet"omitted_var_initializer omitted_return_value"
+    elseif k == KSet"omitted_var_initializer"
         return NilLiteral(lossless_node)
     elseif k == K"omitted_for_condition"
         return BoolLiteral(lossless_node, true)
-    elseif k == K"omitted_for_incrementer"
+    elseif k ∈ KSet"omitted_for_incrementer omitted_return_value"
         return nothing
     end
 
@@ -334,7 +334,7 @@ struct While{C<:Expression,S<:Union{Nothing,Statement}} <: Statement
     statement::S
 end
 
-struct ReturnStatement{E<:Expression} <: Statement
+struct ReturnStatement{E<:Union{Nothing,Expression}} <: Statement
     lossless_node::LosslessTrees.LosslessInnerNode
     return_value::E
 end
