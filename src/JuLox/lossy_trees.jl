@@ -254,7 +254,7 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         return Variable(lossless_node, to_identifier(only(children)))
     elseif k == K"this_expression"
         @assert length(children) == 1
-        @assert SyntaxKinds.kind(children[1]) == K"this" 
+        @assert SyntaxKinds.kind(children[1]) == K"this"
         return This(lossless_node, to_identifier(only(children)))
     elseif k == K"assignment"
         @assert length(children) == 2
@@ -278,6 +278,13 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         # flattening the syntax tree.
         accessor_lossless::Get = to_expression(accessor)
         return Set(lossless_node, accessor_lossless.object, accessor_lossless.name, to_expression(value))
+    elseif k == K"inheritance"
+        @assert length(children) == 2
+        lt, superclass = children
+        @assert SyntaxKinds.kind(lt) == K"<"
+        @assert SyntaxKinds.kind(superclass) == K"variable"
+        # Flatten we flatten out inheritance to just a variable.
+        return to_expression(superclass)
     end
 
     # Unreachable.
@@ -318,6 +325,7 @@ end
 struct ClassDeclaration <: Statement
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
+    superclass::Union{Nothing,Variable}
     methods::Vector{FunctionDeclaration}
 end
 
@@ -372,11 +380,17 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
         return FunctionDeclaration(lossless_node, name, parameters, body)
     elseif k == K"class_decl_statement"
         name = children[1]
-        methods = children[2:end]
-        @assert all([SyntaxKinds.kind(m) == K"method_decl_statement" for m in methods])
+        if length(children) >= 2 && SyntaxKinds.kind(children[2]) == K"inheritance"
+            superclass = to_expression(children[2])
+            methods = children[3:end]
+        else
+            superclass = nothing
+            methods = children[2:end]
+        end
+        @assert all([SyntaxKinds.kind(m) == K"method_decl_statement" for m in methods]) "$(methods)"
         name = to_identifier(name)
         methods = to_statement.(methods)
-        return ClassDeclaration(lossless_node, name, methods)
+        return ClassDeclaration(lossless_node, name, superclass, methods)
     elseif k == K"if_statement"
         @assert length(children) == 3
         condition, then_statement, else_statement = children

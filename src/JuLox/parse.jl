@@ -321,6 +321,16 @@ function parse_class_declaration(parser::Parser)
 
     # Parse the identifier.
     if consume(parser, K"Identifier", K"ErrorInvalidIdentifier")
+        # Parse subclassing by matching on a '<'.
+        if peek(parser) == K"<"
+            inheritance_mark = position(parser)
+            bump(parser)  # Bump the '<'.
+            superclass_name_mark = position(parser)
+            consume(parser, K"Identifier", K"ErrorMissingSuperclassName")
+            emit(parser, superclass_name_mark, K"variable")
+            emit(parser, inheritance_mark, K"inheritance")
+        end
+
         # Parse Parse the body
         if consume(parser, K"{", K"ErrorDeclarationMissingOpenBraces")
             while peek(parser) ∉ KSet"} EndMarker"
