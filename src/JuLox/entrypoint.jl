@@ -22,21 +22,24 @@ function _read_line_or_eof()::Union{String,Nothing}
     end
 end
 
+function print_tokens(io::IO, tokens::Vector{Tokenize.Token})
+    println(io, "Tokens")
+    for t in tokens
+        posstr = "$(lpad(JuLox.startbyte(t), 6)):$(rpad(JuLox.endbyte(t), 6)) │ " 
+        line = rpad(string(posstr, string(SyntaxKinds.kind(t))), 43)
+        line = line * ' ' * repr(Tokenize.text(t))
+        println(io, line)
+    end
+end
+
+print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
+
 function run(interpreter_state::Interpret.InterpreterState, source::String)
     result = Parse.parse_lox(source)
     tree = LosslessTrees.build_tree(result)
 
     if !isempty(result.tokens)
-        # Print tokens.
-        println("Tokens")
-        println("Location   Kind                     Text                ")
-        println("--------------------------------------------------------")
-        for t in result.tokens
-            print(rpad(string(JuLox.startbyte(t), "-", JuLox.endbyte(t)), 11, " "))
-            print(rpad(SyntaxKinds.kind(t), 35, " "))
-            print(rpad("$(repr(Tokenize.text(t)))", 20, " "))
-            println()
-        end
+        print_tokens(result.tokens)
 
         println()
 
