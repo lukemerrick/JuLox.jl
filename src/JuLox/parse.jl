@@ -659,6 +659,11 @@ function parse_primary(parser::Parser)
     if k == K"this"
         bump(parser)
         emit(parser, mark, K"this_expression")
+    elseif k == K"super"
+        bump(parser)
+        consume(parser, K".", K"ErrorSuperMissingDot")
+        consume(parser, K"Identifier", K"ErrorSuperMissingMethod")
+        emit(parser, mark, K"super_expression")
     elseif k == K"Identifier"
         bump(parser)
         emit(parser, mark, K"variable")

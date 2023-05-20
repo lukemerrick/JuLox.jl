@@ -73,7 +73,7 @@ function assign!(environment::Environment, distance::Union{Nothing,Int}, name::S
     target_env = environment_at(environment, distance)
     target_values = values(target_env)
     if !haskey(target_values, name)
-        throw(RuntimeError("Undefined variable '$(name)'", code_pos))
+        throw(RuntimeError("Cannot assign undefined variable '$(name)'", code_pos))
     end
     target_values[name] = value
 end
@@ -82,7 +82,7 @@ function Base.get(environment::Environment, distance::Union{Nothing,Int}, name::
     target_env = environment_at(environment, distance)
     target_values = values(target_env)
     if !haskey(target_values, name)
-        throw(RuntimeError("Undefined variable '$(name)'", code_pos))
+        throw(RuntimeError("Cannot get undefined variable '$(name)'", code_pos))
     end
     return target_values[name]
 end
@@ -120,16 +120,20 @@ function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{Lo
     return nothing
 end
 
-function enter_environment(f::Function, state::InterpreterState, environment::Environment)
-    original_env = state.environment
-    state.environment = environment
+function enter_environment(f::Function, state::InterpreterState, environment::Environment; only_if::Bool=true)
+    if only_if
+        original_env = state.environment
+        state.environment = environment
+    end
     result = f(state)
-    state.environment = original_env
+    if only_if
+        state.environment = original_env
+    end
     return result
 end
 
-function enter_environment(f::Function, state::InterpreterState)
-    return enter_environment(f, state, Environment(state.environment))
+function enter_environment(f::Function, state::InterpreterState; only_if::Bool=true)
+    return enter_environment(f, state, Environment(state.environment); only_if=only_if)
 end
 
 #-------------------------------------------------------------------------------
@@ -230,6 +234,7 @@ arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
 struct LoxClass <: Callable
     name::Symbol
+    superclass::Union{Nothing,LoxClass}
     methods::Dict{Symbol,LoxFunction}
 end
 
@@ -245,7 +250,11 @@ function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue}
 end
 
 function find_method(class::LoxClass, name::Symbol)
-    return get(class.methods, name, nothing)
+    result = get(class.methods, name, nothing)
+    if isnothing(result) && !isnothing(class.superclass)
+        result = get(class.superclass.methods, name, nothing)
+    end
+    return result
 end
 
 Base.string(c::LoxClass) = "<class $(string(c.name))>"
@@ -356,16 +365,32 @@ function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
+    # Handle superclass.
+    if !isnothing(node.superclass)
+        superclass = evaluate(state, node.superclass)
+        # Ensure the superclass is actually a class.
+        if !isa(superclass, LoxClass)
+            throw(RuntimeError("Superclass must be a class", position(node.superclass)))
+        end
+    else
+        superclass = nothing
+    end
+
     identifier = node.name
-    # TODO: Understand why two-step initialization is required.
     define!(state.environment, identifier.symbol, nothing)
-    class_name = node.name.symbol
-    class_methods = Dict{Symbol,LoxFunction}(
-        decl.name.symbol => LoxFunction(decl, state.environment, decl.name.symbol == :init)
-        for decl in node.methods
-    )
-    class = LoxClass(class_name, class_methods)
-    assign!(state.environment, 0, identifier.symbol, class, position(identifier))
+
+    # Whip up an extra closure environment for subclasses to support `super`.
+    is_subclass = !isnothing(node.superclass)
+    enter_environment(state; only_if=is_subclass) do state
+        is_subclass && define!(state.environment, :super, node.superclass)
+        class_name = node.name.symbol
+        class_methods = Dict{Symbol,LoxFunction}(
+            decl.name.symbol => LoxFunction(decl, state.environment, decl.name.symbol == :init)
+            for decl in node.methods
+        )
+        class = LoxClass(class_name, superclass, class_methods)
+        assign!(state.environment, 0, identifier.symbol, class, position(identifier))
+    end
     return nothing
 end
 
@@ -412,6 +437,18 @@ function evaluate(state::InterpreterState, node::Union{LossyTrees.Variable,Lossy
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
     return get(state.environment, distance, identifier.symbol, position(identifier))
+end
+
+function evaluate(state::InterpreterState, node::LossyTrees.Super)
+    identifier = node.name
+    distance = get(state.local_scope_map, node, nothing)
+    superclass = get(state.environment, distance, :super, position(identifier))
+    object = get(state.environment, distance - 1, :this, position(node))
+    method = find_method(superclass, node.method_name.symbol)
+    if isnothing(method)
+        throw(RuntimeError("Undefined property '$(node.method_name.symbol)'", position(node.method_name)))
+    end
+    return bind(object, method)
 end
 
 function evaluate(node::LossyTrees.Literal)

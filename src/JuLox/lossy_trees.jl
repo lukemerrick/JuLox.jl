@@ -162,6 +162,12 @@ struct This <: Expression
     name::Identifier
 end
 
+struct Super <: Expression
+    lossless_node::LosslessTrees.LosslessInnerNode
+    name::Identifier
+    method_name::Identifier
+end
+
 struct Variable <: Expression
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
@@ -256,6 +262,12 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
         @assert length(children) == 1
         @assert SyntaxKinds.kind(children[1]) == K"this"
         return This(lossless_node, to_identifier(only(children)))
+    elseif k == K"super_expression"
+        @assert length(children) == 2
+        name, method_name = children
+        @assert SyntaxKinds.kind(name) == K"super"
+        @assert SyntaxKinds.kind(method_name) == K"Identifier"
+        return Super(lossless_node, to_identifier(name), to_identifier(method_name))
     elseif k == K"assignment"
         @assert length(children) == 2
         name, value = children

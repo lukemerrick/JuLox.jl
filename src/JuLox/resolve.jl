@@ -12,7 +12,7 @@ using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
 Scope = Dict{Symbol,Bool}
 
 _assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method, :initializer)
-_assert_valid_class_type(current_class_type::Symbol) = @assert current_class_type ∈ (:none, :class)
+_assert_valid_class_type(current_class_type::Symbol) = @assert current_class_type ∈ (:none, :class, :subclass)
 
 struct ResolverState
     scopes::Vector{Scope}
@@ -29,10 +29,10 @@ end
 current_function(state::ResolverState) = state.current_function[]
 current_class(state::ResolverState) = state.current_class[]
 
-function enter_scope(f::Function, state::ResolverState)
-    push!(state.scopes, Scope())
+function enter_scope(f::Function, state::ResolverState; only_if::Bool=true)
+    only_if && push!(state.scopes, Scope())
     result = f(state)
-    pop!(state.scopes)
+    only_if && pop!(state.scopes)
     return result
 end
 
@@ -165,6 +165,21 @@ function analyze(state::ResolverState, node::LossyTrees.This)
     return nothing
 end
 
+function analyze(state::ResolverState, node::LossyTrees.Super)
+    if current_class(state) != :subclass
+        if current_class(state) == :none
+            message = "can't use 'super' outside a class"
+        else
+            @assert current_class(state) == :class
+            message = "can't use 'super' in a class with no superclass"
+        end
+        diagnostic = SyntaxValidation.Diagnostic(node.lossless_node, message)
+        push!(state.diagnostics, diagnostic)
+    end
+    resolve_local(state, node, :super)
+    return nothing
+end
+
 function analyze(state::ResolverState, node::LossyTrees.Assign)
     # Analyze the expression assigned to the variable.
     analyze(state, node.value)
@@ -187,23 +202,46 @@ function analyze(state::ResolverState, node::LossyTrees.FunctionDeclaration)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
-    enter_class_state(state, :class) do state
-        # Class names are bound to the surrounding scope.
-        declare!(state, node.name)
-        define!(state, node.name)
+    # Class names are bound to the surrounding scope.
+    declare!(state, node.name)
+    define!(state, node.name)
+
+    # Analyze the superclass if it exists.
+    if !isnothing(node.superclass)
+        # Disallow inheriting from self.
+        if node.superclass.name.symbol == node.name.symbol
+            diagnostic = SyntaxValidation.Diagnostic(
+                node.superclass.lossless_node, "a class can't inherit from itself"
+            )
+            push!(state.diagnostics, diagnostic)
+        end
+        analyze(state, node.superclass)
+    end
+
+    # Handle the `super` keyword by conditionally entering a new scope and defining `super` in that scope.
+    is_subclass = !isnothing(node.superclass)
+    enter_scope(state; only_if=is_subclass) do state
+        if is_subclass
+            last(state.scopes)[:super] = true
+        end
 
         # Handle the `this` keyword by entering a new scope defining `this` in that scope.
         enter_scope(state) do state
             last(state.scopes)[:this] = true
 
-            # Analyze the method definitions.
-            for method_definition in node.methods
+            # Enter class state so that references to `this`, `super` etc. are allowed.
+            class_type = isnothing(node.superclass) ? :class : :subclass
+            enter_class_state(state, class_type) do state
 
-                # Set the function state to :method (for context-specific validity checks).
-                # Unless this is an initializer, then set to :initializer.
-                function_type = method_definition.name.symbol == :init ? :initializer : :method
-                enter_function_state(state, function_type) do state
-                    analyze_function(state, method_definition)
+                # Analyze the method definitions.
+                for method_definition in node.methods
+
+                    # Set the function state to :method (for context-specific validity checks).
+                    # Unless this is an initializer, then set to :initializer.
+                    function_type = method_definition.name.symbol == :init ? :initializer : :method
+                    enter_function_state(state, function_type) do state
+                        analyze_function(state, method_definition)
+                    end
                 end
             end
         end

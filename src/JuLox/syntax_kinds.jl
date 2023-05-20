@@ -45,6 +45,8 @@ const _kind_names =
         "ErrorParametersMissingClosingParenthesis"
         "ErrorMissingPropertyName"
         "ErrorMissingSuperclassName"
+        "ErrorSuperMissingDot"
+        "ErrorSuperMissingMethod"
         # Generic error
         "error"
     "END_ERRORS"
@@ -118,6 +120,7 @@ const _kind_names =
             "unary"
             "variable"
             "this_expression"
+            "super_expression"
             "inheritance"
             "omitted_var_initializer"
             "omitted_for_condition"
@@ -300,6 +303,8 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorParametersMissingClosingParenthesis" => "expect ')' after parameters",
     K"ErrorMissingPropertyName" => "expect property name after '.'",
     K"ErrorMissingSuperclassName" => "expect superclass name",
+    K"ErrorSuperMissingDot" => "expect '.' after 'super'",
+    K"ErrorSuperMissingMethod" => "expect superclass method name",
 )
 
 function error_description(error_kind::Kind)
