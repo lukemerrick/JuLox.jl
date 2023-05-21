@@ -232,7 +232,7 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     # Case 1: Leaf node (literal expression or implied missing expression).
     if SyntaxKinds.is_literal(k)
         return to_literal(lossless_node)
-    elseif k == KSet"omitted_var_initializer"
+    elseif k == K"omitted_var_initializer"
         return NilLiteral(lossless_node)
     elseif k == K"omitted_for_condition"
         return BoolLiteral(lossless_node, true)
