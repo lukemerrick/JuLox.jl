@@ -2,11 +2,6 @@ module Entrypoint
 using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret
 using Fractal.JuLox.SyntaxKinds: @K_str
 
-# TODO: Restrict typing of `result`.
-struct RunResult
-    result::Any
-    run_error::Exception
-end
 
 """Read the next line from `stdin`, or return `nothing` if we hit EOF."""
 function _read_line_or_eof()::Union{String,Nothing}
@@ -32,28 +27,44 @@ function print_tokens(io::IO, tokens::Vector{Tokenize.Token})
     end
 end
 
+function print_analysis_results(locals)
+    println("Variable Resolution")
+    println("Name           Position      Up")
+    println("-------------------------------")
+    for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
+        println(
+            rpad(":$(key.name.symbol)", 15)
+            * lpad("$(position(key))", 8)
+            * lpad(string(value), 8)
+        )
+    end
+    println()
+end
+
 print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
 
-function run(interpreter_state::Interpret.InterpreterState, source::String)
+function run(interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
     result = Parse.parse_lox(source)
     tree = LosslessTrees.build_tree(result)
 
     if !isempty(result.tokens)
-        print_tokens(result.tokens)
+        if verbose
+            # Print tokens.
+            print_tokens(result.tokens)
+            println()
 
-        println()
+            # Print events.
+            println("Events")
+            for event in result.events
+                println(event)
+            end
 
-        # Print events.
-        println("Events")
-        for event in result.events
-            println(event)
+            println()
+
+            # Print lossless tree.
+            println("Lossless Syntax Tree")
+            println(tree)
         end
-
-        println()
-
-        # Print lossless tree.
-        println("Lossless Syntax Tree")
-        println(tree)
 
         # Validate the syntax.
         diagnostics = SyntaxValidation.validate_syntax(tree)
@@ -64,8 +75,12 @@ function run(interpreter_state::Interpret.InterpreterState, source::String)
 
         # Craft the lossy tree.
         lossy_tree = LossyTrees.to_lossy(tree)
-        println("Lossy Syntax Tree")
-        println(lossy_tree)
+
+        # Print the lossy tree.
+        if verbose
+            println("Lossy Syntax Tree")
+            println(lossy_tree)
+        end
 
         # Resolve variables (resolving the semantics).
         locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
@@ -73,22 +88,18 @@ function run(interpreter_state::Interpret.InterpreterState, source::String)
             SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
             return 1
         end
-        Interpret.update_local_scope_map!(interpreter_state, locals)
-        println("Variable Resolution")
-        println("Name           Position      Up")
-        println("-------------------------------")
-        for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
-            println(
-                rpad(":$(key.name.symbol)", 15)
-                * lpad("$(position(key))", 8)
-                * lpad(string(value), 8)
-            )
+        
+        # Print analysis results.
+        if verbose
+            print_analysis_results(locals)
         end
-        println()
-
+        
         # Interpret.
-        println("Interpreter")
-        println("-----------")
+        if verbose
+            println("Interpreter")
+            println("-----------")
+        end
+        Interpret.update_local_scope_map!(interpreter_state, locals)
         had_error = Interpret.interpret(interpreter_state, lossy_tree, source)
         exit_code = had_error ? 70 : 0
         return exit_code
@@ -99,7 +110,7 @@ end
 
 
 """Create a super lightweight REPL experience."""
-function run_prompt()::Integer
+function run_prompt(verbose::Bool)::Integer
     # NOTE: Different from Julia's source code, which can be found here:
     # https://github.com/JuliaLang/julia/blob/826674cf7d21ff5940ecc4dd6c06103cccbed392/stdlib/REPL/src/REPL.jl#L395
     # One reason for differences: Julia handles multi-line expressions, while Lox doesn't!
@@ -146,20 +157,14 @@ function run_prompt()::Integer
             end
         end
         if line != "\n"
-            try
-                run(interpreter_state, line)
-            catch e
-                # !isa(e, Parse.ParseError) && rethrow()
-                # showerror(stdout, e)
-                rethrow()
-            end
+            run(interpreter_state, line, verbose)
         end
         println()  # Add an extra newline after the result.
     end
     return exit_code
 end
 
-function run_file(filepath::String)::Integer
-    return run(Interpret.initialize_interpreter(), read(filepath, String))
+function run_file(filepath::String, verbose::Bool)::Integer
+    return run(Interpret.initialize_interpreter(), read(filepath, String), verbose)
 end
 end  # module
