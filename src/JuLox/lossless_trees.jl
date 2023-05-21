@@ -22,6 +22,8 @@ SyntaxKinds.kind(node::LosslessInnerNode) = node._kind
 children(node::LosslessInnerNode) = node._children
 haschildren(node::LosslessInnerNode) = !(children(node) isa Tuple{})
 haschildren(node::LosslessLeafNode) = false
+text(node::LosslessLeafNode) = Tokenize.text(node)
+text(node::LosslessInnerNode) = join([text(child) for child in children(node)])
 
 function event_start_end(event::Parse.Event, tokens::Vector{Tokenize.Token})
     start_token = event.first_token <= length(tokens) ? tokens[event.first_token] : last(tokens)

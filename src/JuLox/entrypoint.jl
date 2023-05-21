@@ -20,7 +20,7 @@ end
 function print_tokens(io::IO, tokens::Vector{Tokenize.Token})
     println(io, "Tokens")
     for t in tokens
-        posstr = "$(lpad(JuLox.startbyte(t), 6)):$(rpad(JuLox.endbyte(t), 6)) │ " 
+        posstr = "$(lpad(JuLox.startbyte(t), 6)):$(rpad(JuLox.endbyte(t), 6)) │ "
         line = rpad(string(posstr, string(SyntaxKinds.kind(t))), 43)
         line = line * ' ' * repr(Tokenize.text(t))
         println(io, line)
@@ -44,6 +44,9 @@ end
 print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
 
 function run(interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
+    # Edge case: empty string.
+    isempty(source) && return 0
+
     result = Parse.parse_lox(source)
     tree = LosslessTrees.build_tree(result)
 
@@ -88,12 +91,12 @@ function run(interpreter_state::Interpret.InterpreterState, source::String, verb
             SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
             return 1
         end
-        
+
         # Print analysis results.
         if verbose
             print_analysis_results(locals)
         end
-        
+
         # Interpret.
         if verbose
             println("Interpreter")
