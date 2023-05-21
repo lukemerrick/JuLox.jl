@@ -381,7 +381,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
 
     # Whip up an extra closure environment for subclasses to support `super`.
     is_subclass = !isnothing(node.superclass)
-    enter_environment(state; only_if=is_subclass) do state
+    class = enter_environment(state; only_if=is_subclass) do state
         is_subclass && define!(state.environment, :super, node.superclass)
         class_name = node.name.symbol
         class_methods = Dict{Symbol,LoxFunction}(
@@ -389,8 +389,9 @@ function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
             for decl in node.methods
         )
         class = LoxClass(class_name, superclass, class_methods)
-        assign!(state.environment, 0, identifier.symbol, class, position(identifier))
+        return class
     end
+    assign!(state.environment, 0, identifier.symbol, class, position(identifier))
     return nothing
 end
 
