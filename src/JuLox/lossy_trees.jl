@@ -369,7 +369,7 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
     # Case 2: Inner node "real" statements.
     children = filter(is_kept_kind, LosslessTrees.children(lossless_node))
     if k == K"block"
-        return Block(lossless_node, to_statement.(children))
+        return Block(lossless_node, Statement[to_statement(c) for c in children])
     elseif k == K"expression_statement"
         return ExpressionStatement(lossless_node, to_expression(only(children)))
     elseif k == K"return_statement"
@@ -401,7 +401,7 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
         end
         @assert all([SyntaxKinds.kind(m) == K"method_decl_statement" for m in methods]) "$(methods)"
         name = to_identifier(name)
-        methods = to_statement.(methods)
+        methods = Statement[to_statement(m) for m in methods]
         return ClassDeclaration(lossless_node, name, superclass, methods)
     elseif k == K"if_statement"
         @assert length(children) == 3
@@ -467,7 +467,7 @@ end
 function to_lossy(toplevel_node::LosslessTrees.LosslessInnerNode)
     @assert SyntaxKinds.kind(toplevel_node) == K"toplevel"
     children = filter(is_kept_kind, LosslessTrees.children(toplevel_node))
-    return Toplevel(toplevel_node, to_statement.(children))
+    return Toplevel(toplevel_node, Statement[to_statement(c) for c in children])
 end
 
 #-------------------------------------------------------------------------------
