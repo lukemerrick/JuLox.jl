@@ -230,16 +230,15 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
             last(state.scopes)[:this] = true
 
             # Enter class state so that references to `this`, `super` etc. are allowed.
-            class_type = isnothing(node.superclass) ? :class : :subclass
-            enter_class_state(state, class_type) do state
+            enter_class_state(state, is_subclass ? :subclass : :class) do state
 
                 # Analyze the method definitions.
                 for method_definition in node.methods
 
                     # Set the function state to :method (for context-specific validity checks).
                     # Unless this is an initializer, then set to :initializer.
-                    function_type = method_definition.name.symbol == :init ? :initializer : :method
-                    enter_function_state(state, function_type) do state
+                    is_initializer = method_definition.name.symbol == :init
+                    enter_function_state(state, is_initializer ? :initializer : :method) do state
                         analyze_function(state, method_definition)
                     end
                 end
