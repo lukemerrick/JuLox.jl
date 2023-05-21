@@ -102,17 +102,21 @@ Base.show(io::IO, environment::Environment) = show(io, string(environment))
 mutable struct InterpreterState
     environment::Environment
     local_scope_map::Dict{LossyTrees.Expression,Int}
-end
 
-function initialize_interpreter()
-    # Initialize an empty global environment and define the native function.
-    global_environment = Environment(nothing)
-    define!(global_environment, :clock, CLOCK_NATIVE_FN)
+    function InterpreterState()
+        # Initialize an empty global environment.
+        global_environment = Environment(nothing)
 
-    # Initialize an empty variable resolution map.
-    local_scope_map = Dict{LossyTrees.Expression,Int}()
+        # Define the native functions in global scope.
+        for native_fn in NATIVE_FUNCTIONS
+            define!(global_environment, Symbol(native_fn.name), native_fn)
+        end
 
-    return InterpreterState(global_environment, local_scope_map)
+        # Initialize an empty variable resolution map.
+        local_scope_map = Dict{LossyTrees.Expression,Int}()
+
+        return new(global_environment, local_scope_map)
+    end
 end
 
 function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.Expression,Int})
@@ -163,7 +167,7 @@ function call(state::InterpreterState, callee::Callable, args::Vector{LoxValue},
     end
 
     # Run the actual callee-specific logic.
-    return _call(state, callee, args)
+    return _call(state, callee, args, code_position)
 end
 
 
@@ -176,12 +180,46 @@ struct NativeFunction <: Callable
     implementation::Function
 end
 
-Base.string(fn::NativeFunction) = fn.name
+Base.string(fn::NativeFunction) = "<native fn $(fn.name)>"
 arity(fn::NativeFunction) = fn.arity
-_call(state::InterpreterState, callee::NativeFunction, args::Vector{LoxValue}) = callee.implementation(args)
+_call(state::InterpreterState, callee::NativeFunction, args::Vector{LoxValue}, code_position::Int) = callee.implementation(args, code_position)
 
-const CLOCK_NATIVE_FN = NativeFunction("clock", 0, args -> time())
+const NATIVE_FUNCTIONS = NativeFunction[
+    NativeFunction("clock", 0, (args, code_pos) -> time())
+]
 
+
+# Additional native functions for LoxLox support, see: https://github.com/benhoyt/loxlox
+function try_read_char(args, code_position::Int)
+    try
+        c = read(stdin, Char)
+        number = Float64(c)
+        return number
+    catch e
+        @assert isa(e, EOFError)
+        return -1.0
+    end
+end
+
+function try_parse_number_to_char(args, code_position::Int)
+    number = only(args)
+    try
+        return string(Char(number))
+    catch e
+        @assert isa(e, InexactError)
+        throw(RuntimeError("Cannot convert $(number) to character.", code_position))
+    end
+end
+
+append!(
+    NATIVE_FUNCTIONS,
+    NativeFunction[
+        NativeFunction("getc", 0, try_read_char),
+        NativeFunction("chr", 1, try_parse_number_to_char),
+        NativeFunction("exit", 1, (args, code_pos) -> exit(only(args))),
+        NativeFunction("print_error", 1, (args, code_pos) -> println(stderr, only(args)))
+    ]
+)
 
 #-------------------------------------------------------------------------------
 # Lox (aka non-native) functions.
@@ -194,7 +232,7 @@ end
 
 get_closured_this(lox_fn::LoxFunction) = get(lox_fn.closure, 0, :this, position(lox_fn.declaration))
 
-function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxValue})
+function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxValue}, code_position::Int)
     # Function execution happens in a new environment, with the function's closure as the
     # parent environment.
     result = enter_environment(state, Environment(callee.closure)) do fn_state
@@ -238,7 +276,7 @@ struct LoxClass <: Callable
     methods::Dict{Symbol,LoxFunction}
 end
 
-function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue})
+function _call(state::InterpreterState, callee::LoxClass, args::Vector{LoxValue}, code_position::Int)
     instance = LoxInstance(callee, Dict{Symbol,LoxValue}())
     initializer = find_method(callee, :init)
     if !isnothing(initializer)

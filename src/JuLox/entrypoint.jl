@@ -133,7 +133,7 @@ function run_prompt(verbose::Bool)::Integer
     )
 
     # Initialize the interpreter state.
-    interpreter_state = Interpret.initialize_interpreter()
+    interpreter_state = Interpret.InterpreterState()
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -168,6 +168,6 @@ function run_prompt(verbose::Bool)::Integer
 end
 
 function run_file(filepath::String, verbose::Bool)::Integer
-    return run(Interpret.initialize_interpreter(), read(filepath, String), verbose)
+    return run(Interpret.InterpreterState(), read(filepath, String), verbose)
 end
 end  # module
