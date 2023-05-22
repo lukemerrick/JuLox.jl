@@ -27,11 +27,11 @@ include("./entrypoint.jl")
 
     @compile_workload begin
         println("Running a small program from a file...")
-        Entrypoint.run_file(devnull, joinpath(example_dir_path, "complex_code.lox"), true)
+        Entrypoint.cli([joinpath(example_dir_path, "complex_code.lox")], false)
         println("Running a really big program (the LoxLox interpreter)...")
-        Entrypoint.run(devnull, Interpret.InterpreterState(), loxlox_contents, true)
+        Entrypoint.run(devnull, devnull, Interpret.InterpreterState(), loxlox_contents, false)
     end
-    println("Precompile done!")
+    println("Programs finished, building the cache probably (?)")
 end
 
 

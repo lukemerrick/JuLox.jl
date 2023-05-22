@@ -514,7 +514,10 @@ function _show_lossy_node(io, node::LossyNode, indent)
     treestr = string(indent, nodestr)
     println(io, posstr, treestr)
     if !is_leaf
-        _show_lossy_node.(Ref(io), children(node), Ref(indent * "  "))
+        new_indent = indent * "  "
+        for child in children(node)
+            _show_lossy_node(io, child, new_indent)
+        end
     end
 end
 

@@ -2,6 +2,10 @@ module Entrypoint
 using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret
 using Fractal.JuLox.SyntaxKinds: @K_str
 
+using ArgParse: @add_arg_table, ArgParseSettings, parse_args
+using Profile: Profile, @profile
+using ProfileSVG: ProfileSVG
+
 
 """Read the next line from `stdin`, or return `nothing` if we hit EOF."""
 function _read_line_or_eof()::Union{String,Nothing}
@@ -44,7 +48,7 @@ end
 
 print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
 
-function run(output_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
+function run(output_io::IO, error_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
     # Edge case: empty string.
     isempty(source) && return 0
 
@@ -73,7 +77,7 @@ function run(output_io::IO, interpreter_state::Interpret.InterpreterState, sourc
         # Validate the syntax.
         diagnostics = SyntaxValidation.validate_syntax(tree)
         if !isempty(diagnostics)
-            SyntaxValidation.show_diagnostics(output_io, diagnostics, source)
+            SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
             return 1
         end
 
@@ -89,7 +93,7 @@ function run(output_io::IO, interpreter_state::Interpret.InterpreterState, sourc
         # Resolve variables (resolving the semantics).
         locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
         if !isempty(diagnostics)
-            SyntaxValidation.show_diagnostics(output_io, diagnostics, source)
+            SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
             return 65
         end
 
@@ -161,17 +165,64 @@ function run_prompt(verbose::Bool)::Integer
             end
         end
         if line != "\n"
-            run(stdout, interpreter_state, line, verbose)
+            run(stdout, stderr, interpreter_state, line, verbose)
         end
         println()  # Add an extra newline after the result.
     end
     return exit_code
 end
 
-function run_file(output_io::IO, filepath::String, verbose::Bool)::Integer
-    return run(output_io, Interpret.InterpreterState(), read(filepath, String), verbose)
+function run_file(output_io::IO, error_io::IO, filepath::String, verbose::Bool)::Integer
+    exit_code = run(output_io, error_io, Interpret.InterpreterState(), read(filepath, String), verbose)
+    return exit_code
 end
 
-run_file(filepath::String, verbose::Bool)::Integer = run_file(stdout, filepath, verbose)
+run_file(filepath::String, verbose::Bool)::Integer = run_file(stdout, stderr, filepath, verbose)
+
+function parse_command_line(args)
+    settings = ArgParseSettings()
+    @add_arg_table settings begin
+        "--verbose"
+            help = "display tokenization, parsing, and analysis in addition to interpreting the code"
+            action = :store_true
+        "--profile-internals"
+            help = "use the Profile Julia package to profile JuLox as it runs"
+            action = :store_true
+        "filepath"
+            help = "path of .lox file to run (REPL launched if not given)"
+    end
+    parsed_args = parse_args(args, settings)
+    return parsed_args
+end
+
+
+function cli(args, do_exit)
+    args = parse_command_line(args)
+    verbose = args["verbose"]
+    profile = args["profile-internals"]
+    filepath = args["filepath"]
+    if isnothing(filepath)
+        profile && error("Profiling REPL is not supported, please pass a filename")
+        exit_code = run_prompt(verbose)
+        exit(exit_code)
+    else
+        if profile
+            Profile.clear()
+            exit_code = @profile run_file(filepath, verbose)
+            ProfileSVG.save("julox_profile.svg"; maxdepth=200)
+        else
+            exit_code = run_file(filepath, verbose)
+        end
+        if do_exit
+            exit(exit_code)
+        else
+            return exit_code
+        end
+    end
+end
+
+# Useful to make this an option but not a requirement for precompiling purposes.
+cli() = cli(ARGS, true)
+
 
 end  # module

@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 
 script_dir=$(dirname "$0")
-julia --startup-file=no --color=yes --project=${script_dir} -q -- ${script_dir}/cli_julox.jl "$@"
+julia --startup-file=no --color=yes --project=${script_dir} -q -e "using Fractal.JuLox.Entrypoint: cli; cli()" "$@"

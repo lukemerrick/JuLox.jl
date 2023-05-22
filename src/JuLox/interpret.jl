@@ -100,10 +100,12 @@ Base.show(io::IO, environment::Environment) = show(io, string(environment))
 # Parser state composing Environment and name resolution.
 
 mutable struct InterpreterState
+    output_io::IO
+    error_io::IO
     environment::Environment
     local_scope_map::Dict{LossyTrees.Expression,Int}
 
-    function InterpreterState()
+    function InterpreterState(output_io::IO, error_io::IO)
         # Initialize an empty global environment.
         global_environment = Environment(nothing)
 
@@ -115,9 +117,11 @@ mutable struct InterpreterState
         # Initialize an empty variable resolution map.
         local_scope_map = Dict{LossyTrees.Expression,Int}()
 
-        return new(global_environment, local_scope_map)
+        return new(output_io, error_io, global_environment, local_scope_map)
     end
 end
+
+InterpreterState() = InterpreterState(stdout, stderr)
 
 function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.Expression,Int})
     merge!(state.local_scope_map, new_scope_map)
@@ -353,7 +357,7 @@ function interpret(state::InterpreterState, node::LossyTrees.Toplevel, source::S
         !isa(e, RuntimeError) && rethrow()
         line_number, column_number = linecol(e.position, source)
         linecol_str = "[line $(lpad(line_number, 4)), column $(lpad(column_number, 3))]"
-        println("Error @ $linecol_str - $(e.msg)")
+        println(state.error_io, "Error @ $linecol_str - $(e.msg)")
         had_error = true
         return had_error
     end
@@ -444,7 +448,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.ReturnStatement)
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.Print)
-    println(stringify(evaluate(state, node.expression)))
+    println(state.output_io, stringify(evaluate(state, node.expression)))
     return nothing
 end
 

@@ -5,6 +5,22 @@ fun a(z) {
     y = x + z;
 }
 
+class Fib {
+    fib (n) {
+        var a = 0;
+        var b = 1;
+        var temp;
+        for (var i = 0; i < n; i = i + 1) {
+            temp = a;
+            a = b;
+            b = temp + b;
+        }
+        return b;
+    }
+}
+
+Fib().fib(12345);
+
 class MyClass {
     b(z) {
         this.inner = 42;
