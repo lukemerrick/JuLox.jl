@@ -299,7 +299,7 @@ end
 function find_method(class::LoxClass, name::Symbol)
     result = get(class.methods, name, nothing)
     if isnothing(result) && !isnothing(class.superclass)
-        result = get(class.superclass.methods, name, nothing)
+        result = find_method(class.superclass, name)
     end
     return result
 end
