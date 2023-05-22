@@ -27,23 +27,24 @@ function print_tokens(io::IO, tokens::Vector{Tokenize.Token})
     end
 end
 
-function print_analysis_results(locals)
-    println("Variable Resolution")
-    println("Name           Position      Up")
-    println("-------------------------------")
+function print_analysis_results(io::IO, locals)
+    println(io, "Variable Resolution")
+    println(io, "Name           Position      Up")
+    println(io, "-------------------------------")
     for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
         println(
+            io,
             rpad(":$(key.name.symbol)", 15)
             * lpad("$(position(key))", 8)
             * lpad(string(value), 8)
         )
     end
-    println()
+    println(io)
 end
 
 print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
 
-function run(interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
+function run(output_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
     # Edge case: empty string.
     isempty(source) && return 0
 
@@ -53,26 +54,26 @@ function run(interpreter_state::Interpret.InterpreterState, source::String, verb
     if !isempty(result.tokens)
         if verbose
             # Print tokens.
-            print_tokens(result.tokens)
-            println()
+            print_tokens(output_io, result.tokens)
+            println(output_io)
 
             # Print events.
-            println("Events")
+            println(output_io, "Events")
             for event in result.events
-                println(event)
+                println(output_io, event)
             end
 
-            println()
+            println(output_io)
 
             # Print lossless tree.
-            println("Lossless Syntax Tree")
-            println(tree)
+            println(output_io, "Lossless Syntax Tree")
+            println(output_io, tree)
         end
 
         # Validate the syntax.
         diagnostics = SyntaxValidation.validate_syntax(tree)
         if !isempty(diagnostics)
-            SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
+            SyntaxValidation.show_diagnostics(output_io, diagnostics, source)
             return 1
         end
 
@@ -81,26 +82,26 @@ function run(interpreter_state::Interpret.InterpreterState, source::String, verb
 
         # Print the lossy tree.
         if verbose
-            println("Lossy Syntax Tree")
-            println(lossy_tree)
+            println(output_io, "Lossy Syntax Tree")
+            println(output_io, lossy_tree)
         end
 
         # Resolve variables (resolving the semantics).
         locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
         if !isempty(diagnostics)
-            SyntaxValidation.show_diagnostics(stdout, diagnostics, source)
+            SyntaxValidation.show_diagnostics(output_io, diagnostics, source)
             return 1
         end
 
         # Print analysis results.
         if verbose
-            print_analysis_results(locals)
+            print_analysis_results(output_io, locals)
         end
 
         # Interpret.
         if verbose
-            println("Interpreter")
-            println("-----------")
+            println(output_io, "Interpreter")
+            println(output_io, "-----------")
         end
         Interpret.update_local_scope_map!(interpreter_state, locals)
         had_error = Interpret.interpret(interpreter_state, lossy_tree, source)
@@ -160,14 +161,17 @@ function run_prompt(verbose::Bool)::Integer
             end
         end
         if line != "\n"
-            run(interpreter_state, line, verbose)
+            run(stdout, interpreter_state, line, verbose)
         end
         println()  # Add an extra newline after the result.
     end
     return exit_code
 end
 
-function run_file(filepath::String, verbose::Bool)::Integer
-    return run(Interpret.InterpreterState(), read(filepath, String), verbose)
+function run_file(output_io::IO, filepath::String, verbose::Bool)::Integer
+    return run(output_io, Interpret.InterpreterState(), read(filepath, String), verbose)
 end
+
+run_file(filepath::String, verbose::Bool)::Integer = run_file(stdout, filepath, verbose)
+
 end  # module
