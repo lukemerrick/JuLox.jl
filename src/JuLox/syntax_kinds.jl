@@ -27,6 +27,7 @@ const _kind_names =
         "ErrorGroupMissingClosingParenthesis"
         "ErrorInvalidAssigmentTarget"
         "ErrorExpectedExpression"
+        "ErrorExpectedFun"
         "ErrorTextAfterParsing"
         "ErrorIfMissingOpenParenthesis"
         "ErrorIfMissingClosingParenthesis"
@@ -307,6 +308,7 @@ _token_error_descriptions = Dict{Kind, String}(
     K"ErrorMissingSuperclassName" => "expect superclass name",
     K"ErrorSuperMissingDot" => "expect '.' after 'super'",
     K"ErrorSuperMissingMethod" => "expect superclass method name",
+    K"ErrorExpectedFun" => "expect 'fun' keyword",
 )
 
 function error_description(error_kind::Kind)

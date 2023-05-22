@@ -97,7 +97,9 @@ end
 
 @noinline function _parser_stuck_error(parser::Parser)
     # Optimization: emit unlikely errors in a separate function.
-    error("The parser seems stuck at byte $(_next_byte(parser))")
+    finished_text = join(String[Tokenize.text(t) for t in tokens(parser)])
+    text_excerpt = finished_text[max(1, length(finished_text) - 30):end]
+    error("The parser seems stuck at byte $(_next_byte(parser)), just after `$(text_excerpt)`")
 end
 
 """
@@ -129,7 +131,7 @@ function last_byte(parser::Parser)
     max(JuLox.startbyte(t), JuLox.endbyte(t))
 end
 
-_next_byte(parser::Parser) = _next_byte(parser) + 1
+_next_byte(parser::Parser) = last_byte(parser) + 1
 
 
 #-------------------------------------------------------------------------------
@@ -212,6 +214,7 @@ end
 """Recover from invalid synax by trying to find the start of the next statement."""
 function recover(parser::Parser)
     mark = position(parser)
+    bump(parser)  # We have to bump at least once to avoid getting stuck.
     while (k = peek(parser)) != K"EndMarker"
 
         # If we hit a semicolon, we probably start a statement just after.
@@ -279,7 +282,7 @@ end
 function parse_function_declaration(parser::Parser, kind::SyntaxKinds.Kind)
     @assert kind ∈ KSet"fun_decl_statement method_decl_statement"
     mark = position(parser)
-    kind == K"fun_decl_statement" && bump(parser)  # K"fun" token
+    kind == K"fun_decl_statement" && consume(parser, K"fun", K"ErrorExpectedFun")
 
     # Parse the identifier.
     if consume(parser, K"Identifier", K"ErrorInvalidIdentifier")
