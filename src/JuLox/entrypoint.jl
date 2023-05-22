@@ -52,8 +52,8 @@ function run(output_io::IO, error_io::IO, interpreter_state::Interpret.Interpret
     # Edge case: empty string.
     isempty(source) && return 0
 
+    # Parse.
     result = Parse.parse_lox(source)
-    tree = LosslessTrees.build_tree(result)
 
     if !isempty(result.tokens)
         if verbose
@@ -68,7 +68,12 @@ function run(output_io::IO, error_io::IO, interpreter_state::Interpret.Interpret
             end
 
             println(output_io)
+        end
 
+        # Construct lossless syntax tree.
+        tree = LosslessTrees.build_tree(result)
+
+        if verbose
             # Print lossless tree.
             println(output_io, "Lossless Syntax Tree")
             println(output_io, tree)
