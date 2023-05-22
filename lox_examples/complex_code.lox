@@ -1,0 +1,25 @@
+var x = 123.45;
+var y;
+
+fun a(z) {
+    y = x + z;
+}
+
+class MyClass {
+    b(z) {
+        this.inner = 42;
+        x + z / 123.45;
+    }
+    c() {
+        this.b(x);
+        a(this.inner);
+    }
+}
+
+class MySubClass < MyClass {
+    init() {
+        super.c();
+    }
+}
+
+var instance = MySubClass();

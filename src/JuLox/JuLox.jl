@@ -23,11 +23,15 @@ include("./entrypoint.jl")
     # We cut off the part that runs a file (since that requires stdin).
     loxlox_lines = readlines(joinpath(example_dir_path, "lox.lox"))
     loxlox_contents = join(loxlox_lines[1:1920], '\n')
+    println("Precompiling, hang on for a minute or three...")
 
     @compile_workload begin
-        println("Precompiling, hang on for a minute or three...")
+        println("Running a small program from a file...")
+        Entrypoint.run_file(devnull, joinpath(example_dir_path, "complex_code.lox"), true)
+        println("Running a really big program (the LoxLox interpreter)...")
         Entrypoint.run(devnull, Interpret.InterpreterState(), loxlox_contents, true)
     end
+    println("Precompile done!")
 end
 
 
