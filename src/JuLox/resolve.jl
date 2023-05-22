@@ -95,7 +95,7 @@ end
 
 function resolve(
     state::ResolverState,
-    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This},
+    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This,LossyTrees.Super},
     depth::Int
 )
     state.locals[node] = depth
@@ -103,7 +103,7 @@ end
 
 function resolve_local(
     state::ResolverState,
-    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This},
+    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This,LossyTrees.Super},
     symbol::Symbol
 )
     for (i, scope) in enumerate(state.scopes[end:-1:1])

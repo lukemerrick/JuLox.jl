@@ -148,7 +148,7 @@ end
 function to_identifier(lossless_node::LosslessTrees.LosslessLeafNode)
     k = SyntaxKinds.kind(lossless_node)
     text = Tokenize.text(lossless_node)
-    @assert k ∈ KSet"Identifier this" "Expected identifier but got $(k)"
+    @assert k ∈ KSet"Identifier this super" "Expected identifier but got $(k)"
     return Identifier(lossless_node, Symbol(text))
 end
 
