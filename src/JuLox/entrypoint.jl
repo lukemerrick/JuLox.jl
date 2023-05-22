@@ -90,7 +90,7 @@ function run(output_io::IO, interpreter_state::Interpret.InterpreterState, sourc
         locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
         if !isempty(diagnostics)
             SyntaxValidation.show_diagnostics(output_io, diagnostics, source)
-            return 1
+            return 65
         end
 
         # Print analysis results.
