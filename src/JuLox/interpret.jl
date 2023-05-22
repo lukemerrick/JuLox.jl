@@ -299,7 +299,9 @@ function find_method(class::LoxClass, name::Symbol)
     return result
 end
 
-Base.string(c::LoxClass) = "<class $(string(c.name))>"
+# We use the uglier form for compatibility with jlox/clox.
+# Base.string(c::LoxClass) = "<class $(string(c.name))>"
+Base.string(c::LoxClass) = string(c.name)
 Base.show(c::LoxClass) = string(c)
 
 function arity(c::LoxClass)
@@ -330,7 +332,11 @@ function Base.get(instance::LoxInstance, name::Symbol, code_position::Int)
     # If we find nothing, that's an error.
     throw(RuntimeError("Undefined property '$(name)'.", code_position))
 end
-Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
+
+# We use the uglier form for compatibility with jlox/clox.
+# Base.string(instance::LoxInstance) = "<instance of class $(string(instance.class.name))>"
+Base.string(instance::LoxInstance) = "$(string(instance.class.name)) instance"
+
 
 function set!(instance::LoxInstance, name::Symbol, value::Any)
     instance.fields[name] = value
@@ -358,6 +364,8 @@ function interpret(state::InterpreterState, node::LossyTrees.Toplevel, source::S
         line_number, column_number = linecol(e.position, source)
         linecol_str = "[line $(lpad(line_number, 4)), column $(lpad(column_number, 3))]"
         println(state.error_io, "Error @ $linecol_str - $(e.msg)")
+        # Print just line for Lox test compatibility.
+        println(state.error_io, "[line $(line_number)]")
         had_error = true
         return had_error
     end
@@ -473,7 +481,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.Assign)
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
     assign!(state.environment, distance, identifier.symbol, value, position(identifier))
-    return nothing
+    return value
 end
 
 function evaluate(state::InterpreterState, node::Union{LossyTrees.Variable,LossyTrees.This})

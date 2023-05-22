@@ -78,7 +78,7 @@ function run(output_io::IO, error_io::IO, interpreter_state::Interpret.Interpret
         diagnostics = SyntaxValidation.validate_syntax(tree)
         if !isempty(diagnostics)
             SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
-            return 1
+            return 65
         end
 
         # Craft the lossy tree.
