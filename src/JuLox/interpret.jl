@@ -184,7 +184,9 @@ struct NativeFunction <: Callable
     implementation::Function
 end
 
-Base.string(fn::NativeFunction) = "<native fn $(fn.name)>"
+# We use the uglier form for compatibility with jlox/clox.
+# Base.string(fn::NativeFunction) = "<native fn $(fn.name)>"
+Base.string(fn::NativeFunction) = "<native fn>"
 arity(fn::NativeFunction) = fn.arity
 _call(state::InterpreterState, callee::NativeFunction, args::Vector{LoxValue}, code_position::Int) = callee.implementation(args, code_position)
 
@@ -247,7 +249,10 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
 
         # Try-catch so that we can interpret return statements via exceptions.
         try
-            evaluate(fn_state, callee.declaration.body)
+            # Explicitly do *not* enter a new environment for the body block.
+            for statement in callee.declaration.body.statements
+                evaluate(fn_state, statement)
+            end
         catch e
             !isa(e, ReturnAsException) && rethrow()
             result = e.value
@@ -267,7 +272,7 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
     return result
 end
 
-Base.string(fn::LoxFunction) = "<fn $(string(fn.declaration.name))>"
+Base.string(fn::LoxFunction) = "<fn $(string(fn.declaration.name.symbol))>"
 Base.show(fn::LoxFunction) = string(fn)
 arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
@@ -539,7 +544,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.Infix)
         elseif isa(left_value, String) && isa(right_value, String)
             return left_value * right_value
         else
-            throw(RuntimeError("Operands must be two numbers or two strings.", operator.position))
+            throw(RuntimeError("Operands must be two numbers or two strings.", position(operator)))
         end
     elseif node.operator isa LossyTrees.OperatorDivide
         raise_on_non_number_in_operation(operator, left_value, right_value)
@@ -560,10 +565,18 @@ function evaluate(state::InterpreterState, node::LossyTrees.Infix)
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value <= right_value
     elseif node.operator isa LossyTrees.OperatorEqual
-        # NOTE: Lox and Julia share the same equality logic on Lox types
-        # (including nill/nothing)!
+        # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
+        # but in Julia (not Lox) true == 1, so we need to special case this.
+        if xor(left_value isa Bool, right_value isa Bool)
+            return false
+        end
         return left_value == right_value
     elseif node.operator isa LossyTrees.OperatorNotEqual
+        # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
+        # but in Julia (not Lox) true == 1, so we need to special case this.
+        if xor(left_value isa Bool, right_value isa Bool)
+            return true
+        end
         return left_value != right_value
     end
 
@@ -597,7 +610,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.Set)
     end
     value = evaluate(state, node.value)
     set!(object, node.name.symbol, value)
-    return nothing
+    return value
 end
 
 

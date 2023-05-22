@@ -259,8 +259,8 @@ function analyze_function(state::ResolverState, node::LossyTrees.FunctionDeclara
             define!(state, param)
         end
 
-        # Deal with the body.
-        analyze(state, node.body)
+        # Deal with the body, explicitly *not* entering a new scope for this block.
+        analyze.(Ref(state), node.body.statements)
     end
 end
 
