@@ -44,6 +44,8 @@ mutable struct Parser
     # Counter for number of peek()s we've done without making progress via a bump().
     # Used to avoid parsing freezing if we accidentally hit infinite recursion/looping.
     _peek_count::Int
+    # Panic mode used to avoid cascaded errors.
+    _supress_cascaded_errors::Bool
 
     function Parser(source::AbstractString)
         new(
@@ -53,12 +55,20 @@ mutable struct Parser
             1,
             Vector{Tokenize.Token}(),
             0,
+            false
         )
     end
 end
 
 tokens(parser::Parser) = parser._parsed_tokens
 events(parser::Parser) = parser._events
+is_errors_suppressed(parser::Parser) = parser._supress_cascaded_errors
+function suppress_errors!(parser::Parser)
+    parser._supress_cascaded_errors = true
+end
+function unsuppress_errors!(parser::Parser)
+    parser._supress_cascaded_errors = false
+end
 
 # Get position of last item emitted into the output stream
 function Base.position(parser::Parser)
@@ -124,11 +134,20 @@ function current_token(parser::Parser)
     return last(parser._parsed_tokens)
 end
 
-# Return the index of the next byte of the input.
+# Return the index of the last byte of the input that has been tokenized.
 function last_byte(parser::Parser)
-    t = current_token(parser)
+    # Edge case: just starting.
+    isempty(parser._parsed_tokens) && return 0
+
+    t = last(parser._parsed_tokens)
+    result = JuLox.endbyte(t)
+
     # Handle edge-case of zero-length tokens.
-    max(JuLox.startbyte(t), JuLox.endbyte(t))
+    if JuLox.startbyte(t) > result
+        result = JuLox.startbyte(t)
+    end
+
+    return result
 end
 
 _next_byte(parser::Parser) = last_byte(parser) + 1
@@ -176,6 +195,7 @@ are useful for other kinds of invalid syntax (like assinging values to a non-var
 """
 function bump_error(parser::Parser, err_kind::SyntaxKinds.Kind)
     @assert SyntaxKinds.is_error(err_kind)
+    is_errors_suppressed(parser) && return nothing
     bump_implied(parser, err_kind)
 end
 
@@ -197,6 +217,13 @@ function emit(parser::Parser, mark::Position, kind::SyntaxKinds.Kind)
     return position(parser)
 end
 
+function emit_error(parser::Parser, mark::Position, kind::SyntaxKinds.Kind)
+    @assert SyntaxKinds.is_error(err_kind)
+    is_errors_suppressed(parser) && return nothing
+    emit(parser, mark, kind)
+end
+
+
 #-------------------------------------------------------------------------------
 # The actual logic for recursive descent parsing.
 
@@ -213,8 +240,10 @@ end
 
 """Recover from invalid synax by trying to find the start of the next statement."""
 function recover(parser::Parser)
+    suppress_errors!(parser)
     mark = position(parser)
-    bump(parser)  # We have to bump at least once to avoid getting stuck.
+    # We have to bump at least once to avoid getting stuck.
+    peek(parser) != K"EndMarker" && bump(parser)
     while (k = peek(parser)) != K"EndMarker"
 
         # If we hit a semicolon, we probably start a statement just after.
@@ -241,6 +270,8 @@ end
 function parse_toplevel(parser::Parser)
     mark = position(parser)
     while peek(parser) != K"EndMarker"
+        # Turn off error panic mode between each statement.
+        unsuppress_errors!(parser)
         parse_declaration(parser)
     end
     emit(parser, mark, K"toplevel")
@@ -686,6 +717,7 @@ function parse_primary(parser::Parser)
     else
         # We got all the way down looking for some kind of expression and found nothing.
         bump_error(parser, K"ErrorExpectedExpression")
+        recover(parser)
     end
 end
 

@@ -23,7 +23,12 @@ Base.range(d::Diagnostic) = first_byte(d):last_byte(d)
 
 function show_diagnostic(io::IO, diagnostic::Diagnostic, source::String)
     # Figure out the location of the issue.
-    lines = split(source[1:first_byte(diagnostic)], '\n')
+    issue_start = first_byte(diagnostic)
+    if issue_start > length(source)
+        @warn "Diagnostic start byte is $issue_start while source is only length $(length(source))"
+        issue_start = length(source)
+    end
+    lines = split(source[1:issue_start], '\n')
     line_number = length(lines)
     column_number = length(lines[end])
     linecol = "[line $(lpad(line_number, 4)), column $(lpad(column_number, 3))]"
