@@ -38,7 +38,7 @@ function print_analysis_results(io::IO, locals)
     for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
         println(
             io,
-            rpad(":$(key.name.symbol)", 15)
+            rpad(":$(LossyTrees.value(key.name))", 15)
             * lpad("$(position(key))", 8)
             * lpad(string(value), 8)
         )

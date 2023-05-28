@@ -5,9 +5,11 @@ module LossyTrees
 using JuLox: JuLox, SyntaxKinds, Parse, LosslessTrees, Tokenize
 using JuLox.SyntaxKinds: @K_str, @KSet_str
 
-abstract type LossyNode end
-abstract type Expression <: LossyNode end
-abstract type Statement <: LossyNode end
+# Define an abstract type hierarchy.
+abstract type AbstractLossyNode end
+abstract type AbstractLogicOperator <: AbstractLossyNode end
+abstract type AbstractExpression <: AbstractLossyNode end
+abstract type AbstractStatement <: AbstractLossyNode end
 
 """Specify the kinds of nodes to drop from the lossless source tree to create the AST."""
 function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
@@ -21,221 +23,145 @@ end
 is_kept_kind(node::LosslessTrees.LosslessInnerNode) = true
 
 #-------------------------------------------------------------------------------
-# Literals (leaf node expressions).
+# Leaf values (literals and identifiers).
 
-abstract type Literal <: Expression end
+# Define a few marker types to differnetiate Super and This from Identifiers etc.
+struct ThisValue end
+struct SuperValue end
 
-struct StringLiteral <: Literal
+struct LeafValue{T <: Union{String,Float64,Nothing,Bool,Symbol,ThisValue,SuperValue}} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessLeafNode
-    value::String
+    value::T
+
+    # A convenience constructor is our primary conversion mechanism.
+    function LeafValue(lossless_node::LosslessTrees.LosslessLeafNode)
+        k = SyntaxKinds.kind(lossless_node)
+        text = Tokenize.text(lossless_node)
+        if k == K"String"
+            return new{String}(lossless_node, text)
+        elseif k == K"Number"
+            return new{Float64}(lossless_node, parse(Float64, text))
+        elseif k ∈ KSet"nil omitted_var_initializer"
+            return new{Nothing}(lossless_node, nothing)
+        elseif k ∈ KSet"false true omitted_for_condition"
+            return new{Bool}(lossless_node, parse(Bool, text))
+        elseif k == K"Identifier"
+            return new{Symbol}(lossless_node, Symbol(text))
+        elseif k == K"this"
+            return new{ThisValue}(lossless_node, ThisValue())
+        elseif k == K"super"
+            return new{SuperValue}(lossless_node, SuperValue())
+        end
+        error("Syntax kind $(k) is not a leaf value")
+    end
 end
 
-struct NumberLiteral <: Literal
-    lossless_node::LosslessTrees.LosslessLeafNode
-    value::Float64
-end
 
-struct BoolLiteral <: Literal
-    lossless_node::LosslessTrees.LosslessLeafNode
-    value::Bool
-end
+# Aliases for better readability.
+# Sadly we cannot instantiate using these, though, since we added a non-generic custom constructor.
+StringLiteral = LeafValue{String}
+NumberLiteral = LeafValue{Float64}
+BoolLiteral = LeafValue{Bool}
+NilLiteral = LeafValue{Nothing}
+Identifier = LeafValue{Symbol}
+This = LeafValue{ThisValue}
+Super = LeafValue{SuperValue}
 
-struct NilLiteral <: Literal
-    lossless_node::LosslessTrees.LosslessLeafNode
-    value::Nothing
-
-    NilLiteral(lossless_node::LosslessTrees.LosslessLeafNode) = new(lossless_node, nothing)
-end
-
-function to_literal(lossless_node::LosslessTrees.LosslessLeafNode)
-    k = SyntaxKinds.kind(lossless_node)
-    text = Tokenize.text(lossless_node)
-    k == K"String" && return StringLiteral(lossless_node, text)
-    k == K"Number" && return NumberLiteral(lossless_node, parse(Float64, text))
-    k == K"nil" && return NilLiteral(lossless_node)
-    k ∈ KSet"true false" && return BoolLiteral(lossless_node, parse(Bool, text))
-    error("Must only call `to_literal` on a literal kind node")
-end
-
-value(l::Literal) = l.value
+value(l::LeafValue) = l.value
+value(::This) = :this
+value(::Super) = :super
 
 #-------------------------------------------------------------------------------
 # Operators.
 
-abstract type Operator <: LossyNode end
-abstract type LogicOperator <: LossyNode end
-
-
-struct OperatorMultiply <: Operator
+struct Operator{O} <: AbstractLossyNode
     lossless_node::LosslessTrees.LosslessLeafNode
-end
 
-struct OperatorDivide <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorPlus <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorMinus <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorBang <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorLess <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorLessEqual <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorMore <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorMoreEqual <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorEqual <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorNotEqual <: Operator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorOr <: LogicOperator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-struct OperatorAnd <: LogicOperator
-    lossless_node::LosslessTrees.LosslessLeafNode
-end
-
-function to_operator(lossless_node::LosslessTrees.LosslessLeafNode)
-    k = SyntaxKinds.kind(lossless_node)
-    k == K"*" && return OperatorMultiply(lossless_node)
-    k == K"/" && return OperatorDivide(lossless_node)
-    k == K"+" && return OperatorPlus(lossless_node)
-    k == K"-" && return OperatorMinus(lossless_node)
-    k == K"!" && return OperatorBang(lossless_node)
-    k == K"<" && return OperatorLess(lossless_node)
-    k == K"<=" && return OperatorLessEqual(lossless_node)
-    k == K">" && return OperatorMore(lossless_node)
-    k == K">=" && return OperatorMoreEqual(lossless_node)
-    k == K"==" && return OperatorEqual(lossless_node)
-    k == K"!=" && return OperatorNotEqual(lossless_node)
-    k == K"or" && return OperatorOr(lossless_node)
-    k == K"and" && return OperatorAnd(lossless_node)
-    error("Must only call `to_operator` on an operator kind node")
-end
-
-#-------------------------------------------------------------------------------
-# Identifier.
-# TODO: Treat this like a literal?
-
-struct Identifier <: Expression
-    lossless_node::LosslessTrees.LosslessLeafNode
-    symbol::Symbol
-end
-
-function to_identifier(lossless_node::LosslessTrees.LosslessLeafNode)
-    k = SyntaxKinds.kind(lossless_node)
-    text = Tokenize.text(lossless_node)
-    @assert k ∈ KSet"Identifier this super" "Expected identifier but got $(k)"
-    return Identifier(lossless_node, Symbol(text))
+    function Operator(lossless_node::LosslessTrees.LosslessLeafNode)
+        k = SyntaxKinds.kind(lossless_node)
+        @assert k ∈ KSet"* / + - ! < <= > >= == != or and"
+        return new{Symbol(k)}(lossless_node)
+    end
 end
 
 #-------------------------------------------------------------------------------
 # Inner node expressions.
 
-abstract type Callable <: Expression end
+abstract type Callable <: AbstractExpression end
 
-struct This <: Expression
+struct ThisExpression <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
-    name::Identifier
+    name::This
 end
 
-struct Super <: Expression
+struct SuperExpression <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
-    name::Identifier
+    name::Super
     method_name::Identifier
 end
 
-struct Variable <: Expression
+struct Variable <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
 end
 
-struct Assign{V<:Expression} <: Expression
+struct Assign{V<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     value::V
 end
 
-struct Unary{O<:Operator,R<:Expression} <: Expression
+struct Unary{R<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
-    operator::O
+    operator::Operator
     right::R
 end
 
-struct Infix{O<:Operator,L<:Expression,R<:Expression} <: Expression
+struct Infix{L<:AbstractExpression,R<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
-    operator::O
+    operator::Operator
     left::L
     right::R
 end
 
-struct Logical{O<:LogicOperator,L<:Expression,R<:Expression} <: Expression
+struct Logical{L<:AbstractExpression,R<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
-    operator::O
+    operator::Operator
     left::L
     right::R
 end
 
-struct Grouping{E<:Expression} <: Expression
+struct Grouping{E<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     expression::E
 end
 
-struct Call{C<:Expression} <: Expression
+struct Call{C<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     callee::C
-    arguments::Vector{<:Expression}
+    arguments::Vector{<:AbstractExpression}
 end
 
-struct Get{O<:Expression} <: Expression
+struct Get{O<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     object::O
     name::Identifier
 end
 
-struct Set{O<:Expression,V<:Expression} <: Expression
+struct Set{O<:AbstractExpression,V<:AbstractExpression} <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     object::O
     name::Identifier
     value::V
 end
-
-
 
 function to_expression(lossless_node::LosslessTrees.LosslessNode)
     k = SyntaxKinds.kind(lossless_node)
     @assert SyntaxKinds.is_expression(k) "$k should be an expression kind"
 
     # Case 1: Leaf node (literal expression or implied missing expression).
-    if SyntaxKinds.is_literal(k)
-        return to_literal(lossless_node)
-    elseif k == K"omitted_var_initializer"
-        return NilLiteral(lossless_node)
-    elseif k == K"omitted_for_condition"
-        return BoolLiteral(lossless_node, true)
+    if SyntaxKinds.is_literal(k) || k ∈ KSet"omitted_var_initializer omitted_for_condition"
+        return LeafValue(lossless_node)
     elseif k ∈ KSet"omitted_for_incrementer omitted_return_value"
         return nothing
     end
@@ -245,29 +171,29 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     if k == K"unary"
         @assert length(children) == 2
         operator, right = children
-        return Unary(lossless_node, to_operator(operator), to_expression(right))
+        return Unary(lossless_node, Operator(operator), to_expression(right))
     elseif k == K"infix_operation"
         @assert length(children) == 3
         left, operator, right = children
-        return Infix(lossless_node, to_operator(operator), to_expression(left), to_expression(right))
+        return Infix(lossless_node, Operator(operator), to_expression(left), to_expression(right))
     elseif k == K"logical"
         @assert length(children) == 3
         left, operator, right = children
-        return Logical(lossless_node, to_operator(operator), to_expression(left), to_expression(right))
+        return Logical(lossless_node, Operator(operator), to_expression(left), to_expression(right))
     elseif k == K"grouping"
         return Grouping(lossless_node, to_expression(only(children)))
     elseif k == K"variable"
-        return Variable(lossless_node, to_identifier(only(children)))
+        return Variable(lossless_node, LeafValue(only(children)))
     elseif k == K"this_expression"
         @assert length(children) == 1
         @assert SyntaxKinds.kind(children[1]) == K"this"
-        return This(lossless_node, to_identifier(only(children)))
+        return ThisExpression(lossless_node, LeafValue(only(children)))
     elseif k == K"super_expression"
         @assert length(children) == 2
         name, method_name = children
         @assert SyntaxKinds.kind(name) == K"super"
         @assert SyntaxKinds.kind(method_name) == K"Identifier"
-        return Super(lossless_node, to_identifier(name), to_identifier(method_name))
+        return SuperExpression(lossless_node, LeafValue(name), LeafValue(method_name))
     elseif k == K"assignment"
         @assert length(children) == 2
         name, value = children
@@ -281,7 +207,7 @@ function to_expression(lossless_node::LosslessTrees.LosslessNode)
     elseif k == K"accessor"
         @assert length(children) == 2
         object, name = children
-        return Get(lossless_node, to_expression(object), to_identifier(name))
+        return Get(lossless_node, to_expression(object), LeafValue(name))
     elseif k == K"set"
         @assert length(children) == 2
         accessor, value = children
@@ -306,55 +232,55 @@ end
 #-------------------------------------------------------------------------------
 # Statements.
 
-struct Block <: Statement
+struct Block <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
-    statements::Vector{<:Statement}
+    statements::Vector{<:AbstractStatement}
 end
 
-struct ExpressionStatement{E<:Expression} <: Statement
-    lossless_node::LosslessTrees.LosslessInnerNode
-    expression::E
-end
-
-struct Print{E<:Expression} <: Statement
+struct ExpressionStatement{E<:AbstractExpression} <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     expression::E
 end
 
-struct VariableDeclaration{E<:Expression} <: Statement
+struct Print{E<:AbstractExpression} <: AbstractStatement
+    lossless_node::LosslessTrees.LosslessInnerNode
+    expression::E
+end
+
+struct VariableDeclaration{E<:AbstractExpression} <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     initializer::E
 end
 
-struct FunctionDeclaration <: Statement
+struct FunctionDeclaration <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     parameters::Vector{Identifier}
     body::Block
 end
 
-struct ClassDeclaration <: Statement
+struct ClassDeclaration <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     superclass::Union{Nothing,Variable}
     methods::Vector{FunctionDeclaration}
 end
 
-struct If{C<:Expression,T<:Statement,E<:Union{Nothing,Statement}} <: Statement
+struct If{C<:AbstractExpression,T<:AbstractStatement,E<:Union{Nothing,AbstractStatement}} <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     condition::C
     then_statement::T
     else_statement::E
 end
 
-struct While{C<:Expression,S<:Union{Nothing,Statement}} <: Statement
+struct While{C<:AbstractExpression,S<:Union{Nothing,AbstractStatement}} <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     condition::C
     statement::S
 end
 
-struct ReturnStatement{E<:Union{Nothing,Expression}} <: Statement
+struct ReturnStatement{E<:Union{Nothing,AbstractExpression}} <: AbstractStatement
     lossless_node::LosslessTrees.LosslessInnerNode
     return_value::E
 end
@@ -369,7 +295,7 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
     # Case 2: Inner node "real" statements.
     children = filter(is_kept_kind, LosslessTrees.children(lossless_node))
     if k == K"block"
-        return Block(lossless_node, Statement[to_statement(c) for c in children])
+        return Block(lossless_node, AbstractStatement[to_statement(c) for c in children])
     elseif k == K"expression_statement"
         return ExpressionStatement(lossless_node, to_expression(only(children)))
     elseif k == K"return_statement"
@@ -379,15 +305,15 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
     elseif k == K"var_decl_statement"
         @assert length(children) == 2
         name, initializer = children
-        name, initializer = to_identifier(name), to_expression(initializer)
+        name, initializer = LeafValue(name), to_expression(initializer)
         return VariableDeclaration(lossless_node, name, initializer)
     elseif k ∈ KSet"fun_decl_statement method_decl_statement"
         name = children[1]
         parameters = children[2:end-1]
         body = children[end]
         @assert SyntaxKinds.kind(body) == K"block" "Expected block but got $(SyntaxKinds.kind(body))"
-        name = to_identifier(name)
-        parameters = to_identifier.(parameters)
+        name = LeafValue(name)
+        parameters = LeafValue.(parameters)
         body = to_statement(body)
         return FunctionDeclaration(lossless_node, name, parameters, body)
     elseif k == K"class_decl_statement"
@@ -400,8 +326,8 @@ function to_statement(lossless_node::LosslessTrees.LosslessNode)
             methods = children[2:end]
         end
         @assert all([SyntaxKinds.kind(m) == K"method_decl_statement" for m in methods]) "$(methods)"
-        name = to_identifier(name)
-        methods = Statement[to_statement(m) for m in methods]
+        name = LeafValue(name)
+        methods = AbstractStatement[to_statement(m) for m in methods]
         return ClassDeclaration(lossless_node, name, superclass, methods)
     elseif k == K"if_statement"
         @assert length(children) == 3
@@ -442,7 +368,7 @@ function desugar_for_to_while(
     if !isnothing(incrementer)
         # Promote the expression to an expression statement.
         incrementer_statement = ExpressionStatement(incrementer.lossless_node, incrementer)
-        body = Block(lossless_node, Statement[body, incrementer_statement])
+        body = Block(lossless_node, AbstractStatement[body, incrementer_statement])
     end
 
     # Create a while loop with the condition and body.
@@ -450,7 +376,7 @@ function desugar_for_to_while(
 
     # Combine the initializer and while loop into a block.
     if !isnothing(initializer)
-        for_loop = Block(lossless_node, Statement[initializer, for_loop])
+        for_loop = Block(lossless_node, AbstractStatement[initializer, for_loop])
     end
 
     return for_loop
@@ -459,38 +385,38 @@ end
 #-------------------------------------------------------------------------------
 # Toplevel and building from a lossless tree.
 
-struct Toplevel <: LossyNode
+struct Toplevel <: AbstractLossyNode
     lossless_node::LosslessTrees.LosslessInnerNode
-    statements::Vector{<:Statement}
+    statements::Vector{<:AbstractStatement}
 end
 
 function to_lossy(toplevel_node::LosslessTrees.LosslessInnerNode)
     @assert SyntaxKinds.kind(toplevel_node) == K"toplevel"
     children = filter(is_kept_kind, LosslessTrees.children(toplevel_node))
-    return Toplevel(toplevel_node, Statement[to_statement(c) for c in children])
+    return Toplevel(toplevel_node, AbstractStatement[to_statement(c) for c in children])
 end
 
 #-------------------------------------------------------------------------------
 # Shared functionality and display.
 
-lossless_node(node::T) where {T<:LossyNode} = node.lossless_node
-Base.position(node::T) where {T<:LossyNode} = JuLox.startbyte(lossless_node(node))
-SyntaxKinds.kind(node::T) where {T<:LossyNode} = SyntaxKinds.kind(lossless_node(node))
-function range(node::T) where {T<:LossyNode}
+lossless_node(node::AbstractLossyNode) = node.lossless_node
+Base.position(node::AbstractLossyNode) = JuLox.startbyte(lossless_node(node))
+SyntaxKinds.kind(node::AbstractLossyNode) = SyntaxKinds.kind(lossless_node(node))
+function range(node::AbstractLossyNode)
     # TODO: Drop whitespace and other trivia when determining position.
     lnode = lossless_node(node)
     startbyte = JuLox.startbyte(lnode)
     endbyte = JuLox.endbyte(lnode)
     return startbyte, endbyte
 end
-function children(node::T) where {T<:LossyNode}
+function children(node::T) where {T<:AbstractLossyNode}
     res = []
     child_properties = [sym for sym in propertynames(node) if sym != :lossless_node]
     for child_sym in child_properties
         children = getproperty(node, child_sym)
         children = children isa AbstractVector ? children : [children]
         for child in children
-            if child isa LossyNode
+            if child isa AbstractLossyNode
                 push!(res, child)
             end
         end
@@ -498,18 +424,17 @@ function children(node::T) where {T<:LossyNode}
     return res
 end
 
-function _value_str(node::LossyNode)
+function _value_str(node::AbstractLossyNode)
     node isa NilLiteral && return "nil"
-    node isa Literal && return repr(node.value)
-    node isa Identifier && return node.symbol
+    node isa LeafValue && return repr(value(node))
     return SyntaxKinds.kind(lossless_node(node))
 end
 
-function _show_lossy_node(io, node::LossyNode, indent)
+function _show_lossy_node(io, node::AbstractLossyNode, indent)
     val = _value_str(node)
     startbyte, endbyte = range(node)
     posstr = "$(lpad(startbyte, 6)):$(rpad(endbyte, 6)) │"
-    is_leaf = node isa Union{Literal,Operator,Identifier}
+    is_leaf = node isa Union{LeafValue,Operator}
     nodestr = is_leaf ? val : "[$(val)]"
     treestr = string(indent, nodestr)
     println(io, posstr, treestr)
@@ -521,6 +446,6 @@ function _show_lossy_node(io, node::LossyNode, indent)
     end
 end
 
-Base.show(io::IO, node::LossyNode) = _show_lossy_node(io, node, "")
+Base.show(io::IO, node::AbstractLossyNode) = _show_lossy_node(io, node, "")
 
 end  # module LossyTrees

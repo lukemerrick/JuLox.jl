@@ -16,13 +16,13 @@ _assert_valid_class_type(current_class_type::Symbol) = @assert current_class_typ
 
 struct ResolverState
     scopes::Vector{Scope}
-    locals::Dict{LossyTrees.Expression,Int}
+    locals::Dict{LossyTrees.AbstractExpression,Int}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
     current_function::Ref{Symbol}
     current_class::Ref{Symbol}
 
     function ResolverState()
-        return new(Scope[], Dict{LossyTrees.Expression,Int}(), SyntaxValidation.Diagnostic[], Ref(:none), Ref(:none))
+        return new(Scope[], Dict{LossyTrees.AbstractExpression,Int}(), SyntaxValidation.Diagnostic[], Ref(:none), Ref(:none))
     end
 end
 
@@ -42,7 +42,7 @@ function declare!(state::ResolverState, name::LossyTrees.Identifier)
     isempty(state.scopes) && return nothing
 
     current_scope = last(state.scopes)
-    symbol = name.symbol
+    symbol = LossyTrees.value(name)
 
     # Add an error message if we're repeatedly declaring a variable in a local scope.
     if haskey(current_scope, symbol)
@@ -64,7 +64,7 @@ function define!(state::ResolverState, name::LossyTrees.Identifier)
 
     # Track that definition has completed.
     current_scope = last(state.scopes)
-    symbol = name.symbol
+    symbol = LossyTrees.value(name)
     @assert haskey(current_scope, symbol)
     current_scope[symbol] = true
     return nothing
@@ -93,9 +93,11 @@ end
 #-------------------------------------------------------------------------------
 # Resolving reading from and writing to variables.
 
+VariableAccessNode = Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.ThisExpression,LossyTrees.SuperExpression}
+
 function resolve(
     state::ResolverState,
-    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This,LossyTrees.Super},
+    node::VariableAccessNode,
     depth::Int
 )
     state.locals[node] = depth
@@ -103,7 +105,7 @@ end
 
 function resolve_local(
     state::ResolverState,
-    node::Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.This,LossyTrees.Super},
+    node::VariableAccessNode,
     symbol::Symbol
 )
     for (i, scope) in enumerate(state.scopes[end:-1:1])
@@ -134,7 +136,7 @@ function analyze(state::ResolverState, node::LossyTrees.VariableDeclaration)
 end
 
 function analyze(state::ResolverState, node::LossyTrees.Variable)
-    symbol = node.name.symbol
+    symbol = LossyTrees.value(node.name)
     # If the variable has been declared but not defined, we had better not be trying to
     # resolve it already!
     if (
@@ -154,7 +156,7 @@ function analyze(state::ResolverState, node::LossyTrees.Variable)
     return nothing
 end
 
-function analyze(state::ResolverState, node::LossyTrees.This)
+function analyze(state::ResolverState, node::LossyTrees.ThisExpression)
     if current_class(state) == :none
         diagnostic = SyntaxValidation.Diagnostic(
             node.lossless_node, "can't use 'this' outside a class"
@@ -165,7 +167,7 @@ function analyze(state::ResolverState, node::LossyTrees.This)
     return nothing
 end
 
-function analyze(state::ResolverState, node::LossyTrees.Super)
+function analyze(state::ResolverState, node::LossyTrees.SuperExpression)
     if current_class(state) != :subclass
         if current_class(state) == :none
             message = "can't use 'super' outside a class"
@@ -185,7 +187,7 @@ function analyze(state::ResolverState, node::LossyTrees.Assign)
     analyze(state, node.value)
 
     # Resolve the local variable name.
-    resolve_local(state, node, node.name.symbol)
+    resolve_local(state, node, LossyTrees.value(node.name))
 end
 
 function analyze(state::ResolverState, node::LossyTrees.FunctionDeclaration)
@@ -209,7 +211,7 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
     # Analyze the superclass if it exists.
     if !isnothing(node.superclass)
         # Disallow inheriting from self.
-        if node.superclass.name.symbol == node.name.symbol
+        if LossyTrees.value(node.superclass.name) == LossyTrees.value(node.name)
             diagnostic = SyntaxValidation.Diagnostic(
                 node.superclass.lossless_node, "a class can't inherit from itself"
             )
@@ -237,7 +239,7 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
 
                     # Set the function state to :method (for context-specific validity checks).
                     # Unless this is an initializer, then set to :initializer.
-                    is_initializer = method_definition.name.symbol == :init
+                    is_initializer = LossyTrees.value(method_definition.name) == :init
                     enter_function_state(state, is_initializer ? :initializer : :method) do state
                         analyze_function(state, method_definition)
                     end
@@ -351,7 +353,8 @@ function analyze(state::ResolverState, node::LossyTrees.Grouping)
     return nothing
 end
 
-function analyze(state::ResolverState, node::LossyTrees.Literal)
+function analyze(state::ResolverState, node::LossyTrees.LeafValue)
+    # All the important cases are already handled higher up the tree.
     return nothing
 end
 

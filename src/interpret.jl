@@ -103,7 +103,7 @@ mutable struct InterpreterState
     output_io::IO
     error_io::IO
     environment::Environment
-    local_scope_map::Dict{LossyTrees.Expression,Int}
+    local_scope_map::Dict{LossyTrees.AbstractExpression,Int}
 
     function InterpreterState(output_io::IO, error_io::IO)
         # Initialize an empty global environment.
@@ -115,7 +115,7 @@ mutable struct InterpreterState
         end
 
         # Initialize an empty variable resolution map.
-        local_scope_map = Dict{LossyTrees.Expression,Int}()
+        local_scope_map = Dict{LossyTrees.AbstractExpression,Int}()
 
         return new(output_io, error_io, global_environment, local_scope_map)
     end
@@ -123,7 +123,7 @@ end
 
 InterpreterState() = InterpreterState(stdout, stderr)
 
-function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.Expression,Int})
+function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.AbstractExpression,Int})
     merge!(state.local_scope_map, new_scope_map)
     return nothing
 end
@@ -244,7 +244,7 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
     result = enter_environment(state, Environment(callee.closure)) do fn_state
         # Define all parameter-named variables with argument-defined values.
         for (identifier, arg) in zip(callee.declaration.parameters, args)
-            define!(fn_state.environment, identifier.symbol, arg)
+            define!(fn_state.environment, LossyTrees.value(identifier), arg)
         end
 
         # Try-catch so that we can interpret return statements via exceptions.
@@ -272,7 +272,7 @@ function _call(state::InterpreterState, callee::LoxFunction, args::Vector{LoxVal
     return result
 end
 
-Base.string(fn::LoxFunction) = "<fn $(string(fn.declaration.name.symbol))>"
+Base.string(fn::LoxFunction) = "<fn $(string(LossyTrees.value(fn.declaration.name)))>"
 Base.show(fn::LoxFunction) = string(fn)
 arity(fn::LoxFunction) = length(fn.declaration.parameters)
 
@@ -409,13 +409,13 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.VariableDeclaration)
     initial_value = evaluate(state, node.initializer)
     identifier = node.name
-    define!(state.environment, identifier.symbol, initial_value)
+    define!(state.environment, LossyTrees.value(identifier), initial_value)
     return nothing
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.FunctionDeclaration)
     identifier = node.name
-    define!(state.environment, identifier.symbol, LoxFunction(node, state.environment, false))
+    define!(state.environment, LossyTrees.value(identifier), LoxFunction(node, state.environment, false))
     return nothing
 end
 
@@ -432,21 +432,21 @@ function evaluate(state::InterpreterState, node::LossyTrees.ClassDeclaration)
     end
 
     identifier = node.name
-    define!(state.environment, identifier.symbol, nothing)
+    class_name = LossyTrees.value(identifier)
+    define!(state.environment, class_name, nothing)
 
     # Whip up an extra closure environment for subclasses to support `super`.
     is_subclass = !isnothing(node.superclass)
     class = enter_environment(state; only_if=is_subclass) do state
         is_subclass && define!(state.environment, :super, superclass)
-        class_name = node.name.symbol
         class_methods = Dict{Symbol,LoxFunction}(
-            decl.name.symbol => LoxFunction(decl, state.environment, decl.name.symbol == :init)
+            LossyTrees.value(decl.name) => LoxFunction(decl, state.environment, LossyTrees.value(decl.name) == :init)
             for decl in node.methods
         )
         class = LoxClass(class_name, superclass, class_methods)
         return class
     end
-    assign!(state.environment, 0, identifier.symbol, class, position(identifier))
+    assign!(state.environment, 0, class_name, class, position(identifier))
     return nothing
 end
 
@@ -485,33 +485,35 @@ function evaluate(state::InterpreterState, node::LossyTrees.Assign)
     value = evaluate(state, node.value)
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
-    assign!(state.environment, distance, identifier.symbol, value, position(identifier))
+    assign!(state.environment, distance, LossyTrees.value(identifier), value, position(identifier))
     return value
 end
 
-function evaluate(state::InterpreterState, node::Union{LossyTrees.Variable,LossyTrees.This})
+function evaluate(state::InterpreterState, node::Union{LossyTrees.Variable,LossyTrees.ThisExpression})
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
-    return get(state.environment, distance, identifier.symbol, position(identifier))
+    return get(state.environment, distance, LossyTrees.value(identifier), position(identifier))
 end
 
-function evaluate(state::InterpreterState, node::LossyTrees.Super)
+function evaluate(state::InterpreterState, node::LossyTrees.SuperExpression)
     identifier = node.name
     distance = get(state.local_scope_map, node, nothing)
     superclass = get(state.environment, distance, :super, position(identifier))
     object = get(state.environment, distance - 1, :this, position(node))
-    method = find_method(superclass, node.method_name.symbol)
+    method = find_method(superclass, LossyTrees.value(node.method_name))
     if isnothing(method)
-        throw(RuntimeError("Undefined property '$(node.method_name.symbol)'", position(node.method_name)))
+        throw(RuntimeError("Undefined property '$(LossyTrees.value(node.method_name))'", position(node.method_name)))
     end
     return bind(object, method)
 end
 
-function evaluate(node::LossyTrees.Literal)
-    return LossyTrees.value(node)
+function evaluate(node::LossyTrees.LeafValue)
+    result = LossyTrees.value(node)
+    @assert typeof(result)  ∉ Set([Symbol, LossyTrees.ThisValue, LossyTrees.SuperValue])
+    return result
 end
 # Match the API.
-evaluate(state::InterpreterState, node::LossyTrees.Literal) = evaluate(node)
+evaluate(state::InterpreterState, node::LossyTrees.LeafValue) = evaluate(node)
 
 function evaluate(state::InterpreterState, node::LossyTrees.Grouping)
     return evaluate(state, node.expression)
@@ -520,10 +522,10 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.Unary)
     operand_value = evaluate(state, node.right)
     operator = node.operator
-    if node.operator isa LossyTrees.OperatorMinus
+    if node.operator isa LossyTrees.Operator{:-}
         raise_on_non_number_in_operation(operator, operand_value)
         return -operand_value
-    elseif operator isa LossyTrees.OperatorBang
+    elseif operator isa LossyTrees.Operator{:!}
         return !is_truthy(operand_value)
     end
 
@@ -535,10 +537,10 @@ function evaluate(state::InterpreterState, node::LossyTrees.Infix)
     left_value = evaluate(state, node.left)
     right_value = evaluate(state, node.right)
     operator = node.operator
-    if node.operator isa LossyTrees.OperatorMinus
+    if node.operator isa LossyTrees.Operator{:-}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value - right_value
-    elseif node.operator isa LossyTrees.OperatorPlus
+    elseif node.operator isa LossyTrees.Operator{:+}
         if isa(left_value, Float64) && isa(right_value, Float64)
             return left_value + right_value
         elseif isa(left_value, String) && isa(right_value, String)
@@ -546,32 +548,32 @@ function evaluate(state::InterpreterState, node::LossyTrees.Infix)
         else
             throw(RuntimeError("Operands must be two numbers or two strings.", position(operator)))
         end
-    elseif node.operator isa LossyTrees.OperatorDivide
+    elseif node.operator isa LossyTrees.Operator{:/}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value / right_value
-    elseif node.operator isa LossyTrees.OperatorMultiply
+    elseif node.operator isa LossyTrees.Operator{:*}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value * right_value
-    elseif node.operator isa LossyTrees.OperatorMore
+    elseif node.operator isa LossyTrees.Operator{:>}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value > right_value
-    elseif node.operator isa LossyTrees.OperatorMoreEqual
+    elseif node.operator isa LossyTrees.Operator{:>=}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value >= right_value
-    elseif node.operator isa LossyTrees.OperatorLess
+    elseif node.operator isa LossyTrees.Operator{:<}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value < right_value
-    elseif node.operator isa LossyTrees.OperatorLessEqual
+    elseif node.operator isa LossyTrees.Operator{:<=}
         raise_on_non_number_in_operation(operator, left_value, right_value)
         return left_value <= right_value
-    elseif node.operator isa LossyTrees.OperatorEqual
+    elseif node.operator isa LossyTrees.Operator{:(==)}
         # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
         # but in Julia (not Lox) true == 1, so we need to special case this.
         if xor(left_value isa Bool, right_value isa Bool)
             return false
         end
         return left_value == right_value
-    elseif node.operator isa LossyTrees.OperatorNotEqual
+    elseif node.operator isa LossyTrees.Operator{:!=}
         # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
         # but in Julia (not Lox) true == 1, so we need to special case this.
         if xor(left_value isa Bool, right_value isa Bool)
@@ -599,7 +601,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.Get)
     if !isa(object, LoxInstance)
         throw(RuntimeError("Only instances have properties.", position(node.object)))
     end
-    return get(object, node.name.symbol, position(node.name))
+    return get(object, LossyTrees.value(node.name), position(node.name))
 end
 
 
@@ -609,7 +611,7 @@ function evaluate(state::InterpreterState, node::LossyTrees.Set)
         throw(RuntimeError("Only instances have fields.", position(node.object)))
     end
     value = evaluate(state, node.value)
-    set!(object, node.name.symbol, value)
+    set!(object, LossyTrees.value(node.name), value)
     return value
 end
 
@@ -617,9 +619,9 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.Logical)
     left_value = evaluate(state, node.left)
     if (
-        (node.operator isa LossyTrees.OperatorOr && is_truthy(left_value))
+        (node.operator isa LossyTrees.Operator{:or} && is_truthy(left_value))
         ||
-        (node.operator isa LossyTrees.OperatorAnd && !is_truthy(left_value))
+        (node.operator isa LossyTrees.Operator{:and} && !is_truthy(left_value))
     )
         return left_value
     end
