@@ -1,18 +1,30 @@
-# JuLox?
+# JuLox
 
-This directory contains the implementation of the `Fractal.Lox` submodule, which is a tree-walk interpreter for the Lox programming language from the book [Crafting Interpreters](https://craftinginterpreters.com). The point of this submodule was to test out ideas of how to implement a parser in Julia on a language that is simpler than Fractal (Lox is desiged for teaching simplicity, after all!).
+This repo contains the implementation of the Lox programming language from the book [Crafting Interpreters](https://craftinginterpreters.com).
 
-## Ideas tested / expected learnings
+## Installation
 
-- Borrow design and code from [`JuliaSyntax.jl`](https://github.com/JuliaLang/JuliaSyntax.jl/tree/main/src) and [`Tokenize.jl`](https://github.com/JuliaLang/Tokenize.jl)
-  - Use of the special `Kind` type for token types
-  - Keeping track of source position for error handling
-  - Tokenization converts text to tokens
-  - Parsing converts tokens to "events"
-  - Events can be used to construct a "Green tree", which is a lossless syntax tree (lossless means we can convert this back to the exact original text!)
-    - This helps with nice error messages
-  - Green trees can be converted to abstract syntax trees
-    - These can be interpreted
-- Learn to write a decent REPL with some color and `ctrl-D` quitting in Julia
-- Try out organizing a langauge interpreter into Julia submodules
-- [Stretch goal] go beyond a tree-walk interpreter and transpile Lox to Julia!
+1. Get Julia 1.9+ (earlier versions might also work)
+2. Checkout the code `git clone ...`
+3. Instantiate this package's environment (inside the Julia package management REPL mode, that would be something like `activate /path/to/JuLox` and then `instantiate`)
+
+## Usage Examples
+
+You can run files like this: `./julox lox_examples/recursive_fibonacci.lox`
+
+Enter the repl like this: `./julox`
+
+You can have JuLox pretty-print all the internal intermediate state (tokens, parser events, syntax trees, variable resolution scope info) by adding the `--verbose` flag, e.g. `./julox --verbose`, too.
+
+## What's special
+
+This implementation draws on a few ideas used (and nicely explained) in the lovely [JuliaSyntax.jl](https://github.com/JuliaLang/JuliaSyntax.jl) next-generation Julia frontend. In particular, we strive for looser coupling between tokenization, parsing, syntax tree creation, and analysis/interpreting.
+
+The parser generates events, not trees. We've got two syntax trees, one lossless and the other lossy. 
+
+## History
+
+### 2023-05-27
+
+- Tree-walk interpreter functioning!
+- This repo published on GitHubu under the MIT license
