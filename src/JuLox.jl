@@ -18,7 +18,7 @@ include("./interpret.jl")
 include("./entrypoint.jl")
 
 @setup_workload begin
-    example_dir_path = abspath(joinpath(dirname(@__FILE__),  "..", "..", "lox_examples"))
+    example_dir_path = abspath(joinpath(dirname(@__FILE__),  "..", "lox_examples"))
     # Read the LoxLox interpreter file (a really big Lox program).
     # We cut off the part that runs a file (since that requires stdin).
     loxlox_lines = readlines(joinpath(example_dir_path, "lox.lox"))
