@@ -1,5 +1,5 @@
 module Interpret
-using Fractal.JuLox: LossyTrees
+using JuLox: LossyTrees
 
 struct RuntimeError <: Exception
     msg::String

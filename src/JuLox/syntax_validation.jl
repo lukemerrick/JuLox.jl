@@ -1,6 +1,6 @@
 module SyntaxValidation
 
-using Fractal.JuLox: JuLox, LosslessTrees, SyntaxKinds
+using JuLox: JuLox, LosslessTrees, SyntaxKinds
 
 #-------------------------------------------------------------------------------
 # Diagnostic structure.

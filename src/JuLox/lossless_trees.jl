@@ -2,7 +2,7 @@
 # Builds an untyped lossless source tree, aka "green tree" in Roslyn parlance.
 
 module LosslessTrees
-using Fractal.JuLox: JuLox, SyntaxKinds, Parse, Tokenize
+using JuLox: JuLox, SyntaxKinds, Parse, Tokenize
 
 LosslessLeafNode = Tokenize.Token  # alias
 

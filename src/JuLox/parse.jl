@@ -5,8 +5,8 @@
 # (or lossy tree creation, if trivia tokens are filtered!)
 
 module Parse
-using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize
-using Fractal.JuLox.SyntaxKinds: @K_str, @KSet_str
+using JuLox: JuLox, SyntaxKinds, Tokenize
+using JuLox.SyntaxKinds: @K_str, @KSet_str
 
 
 #-------------------------------------------------------------------------------

@@ -2,8 +2,8 @@
 
 module LossyTrees
 
-using Fractal.JuLox: JuLox, SyntaxKinds, Parse, LosslessTrees, Tokenize
-using Fractal.JuLox.SyntaxKinds: @K_str, @KSet_str
+using JuLox: JuLox, SyntaxKinds, Parse, LosslessTrees, Tokenize
+using JuLox.SyntaxKinds: @K_str, @KSet_str
 
 abstract type LossyNode end
 abstract type Expression <: LossyNode end

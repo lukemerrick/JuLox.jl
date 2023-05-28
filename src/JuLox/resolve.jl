@@ -3,7 +3,7 @@ module Resolver
 # TODO: (Challenge item from the book): Extend the validation to report an error if
 # a local variable is defined but not used.
 
-using Fractal.JuLox: JuLox, LossyTrees, SyntaxValidation
+using JuLox: JuLox, LossyTrees, SyntaxValidation
 
 #-------------------------------------------------------------------------------
 # Building blocks.

@@ -1,6 +1,6 @@
 module Entrypoint
-using Fractal.JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret
-using Fractal.JuLox.SyntaxKinds: @K_str
+using JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret
+using JuLox.SyntaxKinds: @K_str
 
 using ArgParse: @add_arg_table, ArgParseSettings, parse_args
 using Profile: Profile, @profile

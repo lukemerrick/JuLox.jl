@@ -1,6 +1,6 @@
 module Tokenize
-using Fractal.JuLox: JuLox, SyntaxKinds
-using Fractal.JuLox.SyntaxKinds: @K_str
+using JuLox: JuLox, SyntaxKinds
+using JuLox.SyntaxKinds: @K_str
 
 # Create EOF sentinel value.
 const EOF_CHAR = typemax(Char)
