@@ -1,0 +1,10 @@
+name = "JuLox"
+uuid = "00e55288-c9dd-4350-bea0-adeffe95666c"
+authors = ["Luke Merrick <contact@lukemerrick.com>"]
+version = "0.1.0"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+Profile = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+ProfileSVG = "132c30aa-f267-4189-9183-c8a63c7e05e6"
