@@ -87,8 +87,6 @@ end
 #-------------------------------------------------------------------------------
 # Inner node expressions.
 
-abstract type Callable <: AbstractExpression end
-
 struct ThisExpression <: AbstractExpression
     lossless_node::LosslessTrees.LosslessInnerNode
     name::This
