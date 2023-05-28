@@ -62,7 +62,7 @@ Token() = Token(K"error", 0, "")
 
 SyntaxKinds.kind(t::Token) = t._kind
 JuLox.startbyte(t::Token) = t._startbyte
-JuLox.endbyte(t::Token) = t._startbyte + length(t._text) - 1
+JuLox.endbyte(t::Token) = t._startbyte + ncodeunits(t._text) - 1
 text(t::Token) = t._text
 JuLox.span(token::Token) = JuLox.endbyte(token) - JuLox.startbyte(token) + 1
 
