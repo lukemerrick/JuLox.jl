@@ -8,6 +8,72 @@ This repo contains the implementation of the Lox programming language from the b
 2. Checkout the code `git clone ...`
 3. Instantiate this package's environment (inside the Julia package management REPL mode, that would be something like `activate /path/to/JuLox` and then `instantiate`)
 
+## Design Variations
+
+Although I built JuLox while reading Crafting Interpreters, I didn't follow the `jlox` recipe exactly. See the below diagram to understand the difference.
+
+```text
+               jlox                                   │                 JuLox
+                                                      │
+              ┌────────────┐                          │                 ┌────────────┐
+              │ Source     │                          │                 │ Source     │
+Input         │ Code       │                          │   Input         │ Code       │
+              │            │                          │                 │            │
+              └──────┬─────┘                          │                 └──────┬─────┘
+                     │                                │                        │
+                     ▼                                │                        ▼
+              ┌────────────┐                          │                 ┌────────────┐
+              │            │                          │                 │            │
+Tokenization  │ Tokens     │                          │   Tokenization  │ Tokens     ├──┐
+              │            │                          │                 │            │  │
+              └──────┬─────┘                          │                 └──────┬─────┘  │
+                     │                                │                        │        │
+                     │         Invalid ┌───────────┐  │                        ▼        │
+                     │         Syntax  │ Error     │  │                 ┌────────────┐  │
+Parsing              ├─────────────────┤ Report    │  │                 │ Syntax     │  │
+                     │                 │           │  │   Parsing       │ Events     │  │
+                     │Valid            └───────────┘  │                 │            │  │
+                     │Syntax                          │                 └──────┬─────┘  │
+                     ▼                                │                        │        │
+              ┌────────────┐                          │                        ▼        │
+              │ Lossy      │                          │                 ┌────────────┐  │
+              │ Syntax     ├─┐                        │   Build         │ Lossless   │  │
+              │ Tree       │ │                        │   Lossless      │ Syntax     │◄─┘
+              └──────┬─────┘ │                        │   Tree          │ Tree       │
+                     │       │                        │                 └──────┬─────┘
+                     ▼       │                        │                        │
+              ┌────────────┐ │                        │                        │                 ┌───────────┐
+Semantic      │ Resolved   │ │                        │   Validate             │         Invalid │ Error     │
+Analysis      │ Variable   │ │                        │   Syntax               ├────────────────►│ Report    │
+              │ Scopes     │ │                        │                        │                 │           │
+              └──────┬─────┘ │                        │                        │Valid            └───────────┘
+                     │       │                        │                        ▼
+                     │◄──────┘ Runtime ┌───────────┐  │                 ┌────────────┐
+Interpret            │         Errors  │ Error     │  │   Build         │ Lossy      │
+                     ├────────────────►│ Report    │  │   Lossy         │ Syntax     ├─┐
+                     │                 │           │  │   Tree          │ Tree       │ │
+                     │No Errors        └───────────┘  │                 └──────┬─────┘ │
+                     ▼                                │                        │       │
+              ┌────────────┐                          │                        ▼       │
+              │ Program    │                          │                 ┌────────────┐ │
+              │ Output     │                          │   Semantic      │ Resolved   │ │
+              │            │                          │   Analysis      │ Variable   │ │
+              └────────────┘                          │                 │ Scopes     │ │
+                                                      │                 └──────┬─────┘ │
+                                                      │                        │       │
+                                                      │                        │◄──────┘ Runtime ┌───────────┐
+                                                      │    Interpret           │         Errors  │ Error     │
+                                                      │                        ├────────────────►│ Report    │
+                                                      │                        │                 │           │
+                                                      │                        │No Errors        └───────────┘
+                                                      │                        ▼
+                                                      │                 ┌────────────┐
+                                                      │                 │ Program    │
+                                                      │                 │ Output     │
+                                                      │                 │            │
+                                                                        └────────────┘
+```
+
 ## Usage Examples
 
 You can run files like this: `./julox lox_examples/recursive_fibonacci.lox`
