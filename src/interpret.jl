@@ -360,10 +360,9 @@ function linecol(pos::Int, text::String)
 end
 
 function interpret(state::InterpreterState, node::LossyTrees.Toplevel, source::String)
+    had_error = false
     try
         evaluate(state, node)
-        had_error = false
-        return had_error
     catch e
         !isa(e, RuntimeError) && rethrow()
         line_number, column_number = linecol(e.position, source)
@@ -372,8 +371,8 @@ function interpret(state::InterpreterState, node::LossyTrees.Toplevel, source::S
         # Print just line for Lox test compatibility.
         println(state.error_io, "[line $(line_number)]")
         had_error = true
-        return had_error
     end
+    return had_error
 end
 
 function stringify(value)

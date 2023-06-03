@@ -130,7 +130,7 @@ function run_transpiled(output_io::IO, error_io::IO, state::Transpile.Transpiler
     prep_result = _prepare_to_run(output_io, error_io, source, verbose)
     isnothing(prep_result) && return 0
     lossy_tree, locals = prep_result
-    native_expr = Transpile.transpile(state, lossy_tree, source)
+    native_expr = Transpile.transpile(state, lossy_tree)
     if verbose
         println(output_io, "Transpiled Code")
         print_tree(output_io, native_expr)
@@ -141,7 +141,7 @@ function run_transpiled(output_io::IO, error_io::IO, state::Transpile.Transpiler
         end
     end
     # TODO: Figure out if we need to apply the scope map somehow to the interpreter.
-    had_error = Transpile.interpret_transpiled(state, native_expr)
+    had_error = Transpile.interpret_transpiled(state, native_expr, source)
     exit_code = had_error ? 70 : 0
     return exit_code
 end
