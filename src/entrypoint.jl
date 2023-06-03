@@ -1,7 +1,8 @@
 module Entrypoint
-using JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret
+using JuLox: JuLox, SyntaxKinds, Tokenize, Parse, LosslessTrees, SyntaxValidation, LossyTrees, Resolver, Interpret, Transpile
 using JuLox.SyntaxKinds: @K_str
 
+using AbstractTrees: print_tree
 using ArgParse: @add_arg_table, ArgParseSettings, parse_args
 using Profile: Profile, @profile
 using ProfileSVG: ProfileSVG
@@ -48,9 +49,9 @@ end
 
 print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
 
-function run(output_io::IO, error_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
+function _prepare_to_run(output_io::IO, error_io::IO, source::String, verbose::Bool)
     # Edge case: empty string.
-    isempty(source) && return 0
+    isempty(source) && return nothing
 
     # Parse.
     result = Parse.parse_lox(source)
@@ -106,24 +107,48 @@ function run(output_io::IO, error_io::IO, interpreter_state::Interpret.Interpret
         if verbose
             print_analysis_results(output_io, locals)
         end
+        return lossy_tree, locals
+    end
+    return nothing
+end
 
-        # Interpret.
+function run(output_io::IO, error_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
+    prep_result = _prepare_to_run(output_io, error_io, source, verbose)
+    isnothing(prep_result) && return 0
+    lossy_tree, locals = prep_result
+    if verbose
+        println(output_io, "Interpreter")
+        println(output_io, "-----------")
+    end
+    Interpret.update_local_scope_map!(interpreter_state, locals)
+    had_error = Interpret.interpret(interpreter_state, lossy_tree, source)
+    exit_code = had_error ? 70 : 0
+    return exit_code
+end
+
+function run_transpiled(output_io::IO, error_io::IO, state::Transpile.TranspilerState, source::String, verbose::Bool)
+    prep_result = _prepare_to_run(output_io, error_io, source, verbose)
+    isnothing(prep_result) && return 0
+    lossy_tree, locals = prep_result
+    native_expr = Transpile.transpile(state, lossy_tree, source)
+    if verbose
+        println(output_io, "Transpiled Code")
+        print_tree(output_io, native_expr)
+        println(output_io)
         if verbose
             println(output_io, "Interpreter")
             println(output_io, "-----------")
         end
-        Interpret.update_local_scope_map!(interpreter_state, locals)
-        had_error = Interpret.interpret(interpreter_state, lossy_tree, source)
-        exit_code = had_error ? 70 : 0
-        return exit_code
     end
-
-    return 0
+    # TODO: Figure out if we need to apply the scope map somehow to the interpreter.
+    had_error = Transpile.interpret_transpiled(state, native_expr)
+    exit_code = had_error ? 70 : 0
+    return exit_code
 end
 
 
 """Create a super lightweight REPL experience."""
-function run_prompt(verbose::Bool)::Integer
+function run_prompt(verbose::Bool, transpile::Bool)::Integer
     # NOTE: Different from Julia's source code, which can be found here:
     # https://github.com/JuliaLang/julia/blob/826674cf7d21ff5940ecc4dd6c06103cccbed392/stdlib/REPL/src/REPL.jl#L395
     # One reason for differences: Julia handles multi-line expressions, while Lox doesn't!
@@ -143,7 +168,13 @@ function run_prompt(verbose::Bool)::Integer
     )
 
     # Initialize the interpreter state.
-    interpreter_state = Interpret.InterpreterState()
+    if transpile
+        state = Transpile.TranspilerState()
+        run_fn = run_transpiled
+    else
+        state = Interpret.InterpreterState()
+        run_fn = run
+    end
 
     # Loop until CTRL-D (EOF) signal.
     while true
@@ -170,25 +201,33 @@ function run_prompt(verbose::Bool)::Integer
             end
         end
         if line != "\n"
-            run(stdout, stderr, interpreter_state, line, verbose)
+            run_fn(stdout, stderr, state, line, verbose)
         end
         println()  # Add an extra newline after the result.
     end
     return exit_code
 end
 
-function run_file(output_io::IO, error_io::IO, filepath::String, verbose::Bool)::Integer
-    exit_code = run(output_io, error_io, Interpret.InterpreterState(), read(filepath, String), verbose)
+function run_file(output_io::IO, error_io::IO, filepath::String, verbose::Bool, transpile::Bool)::Integer
+    source = read(filepath, String)
+    if transpile
+        exit_code = run_transpiled(output_io, error_io, Transpile.TranspilerState(), source, verbose)
+    else
+        exit_code = run(output_io, error_io, Interpret.InterpreterState(), source, verbose)
+    end
     return exit_code
 end
 
-run_file(filepath::String, verbose::Bool)::Integer = run_file(stdout, stderr, filepath, verbose)
+run_file(filepath::String, verbose::Bool, transpile::Bool)::Integer = run_file(stdout, stderr, filepath, verbose, transpile)
 
 function parse_command_line(args)
     settings = ArgParseSettings()
     @add_arg_table settings begin
         "--verbose"
             help = "display tokenization, parsing, and analysis in addition to interpreting the code"
+            action = :store_true
+        "--transpile"
+            help = "transpile Lox to Julia for higher performance"
             action = :store_true
         "--profile-internals"
             help = "use the Profile Julia package to profile JuLox as it runs"
@@ -205,18 +244,19 @@ function cli(args, do_exit)
     args = parse_command_line(args)
     verbose = args["verbose"]
     profile = args["profile-internals"]
+    transpile = args["transpile"]
     filepath = args["filepath"]
     if isnothing(filepath)
         profile && error("Profiling REPL is not supported, please pass a filename")
-        exit_code = run_prompt(verbose)
+        exit_code = run_prompt(verbose, transpile)
         exit(exit_code)
     else
         if profile
             Profile.clear()
-            exit_code = @profile run_file(filepath, verbose)
+            exit_code = @profile run_file(filepath, verbose, transpile)
             ProfileSVG.save("julox_profile.svg"; maxdepth=200)
         else
-            exit_code = run_file(filepath, verbose)
+            exit_code = run_file(filepath, verbose, transpile)
         end
         if do_exit
             exit(exit_code)
