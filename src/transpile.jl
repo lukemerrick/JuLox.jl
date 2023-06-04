@@ -98,6 +98,9 @@ function transpile(state::TranspilerState, node::LossyTrees.LeafValue)
     return result
 end
 
+function transpile(state::TranspilerState, node::LossyTrees.Grouping)
+    return transpile(state, node.expression)
+end
 
 function transpile(state::TranspilerState, node::LossyTrees.Unary)
     operand = transpile(state, node.right)
@@ -109,9 +112,58 @@ function transpile(state::TranspilerState, node::LossyTrees.Unary)
             -$operand
         end
     elseif operator isa LossyTrees.Operator{:!}
-        return :(__truthy__($operand))
+        return :(!__truthy__($operand))
     end
     error("unreachable")
+end
+
+_op_kind(::LossyTrees.Operator{T}) where T = T
+
+function transpile(state::TranspilerState, node::LossyTrees.Infix)
+    left = transpile(state, node.left)
+    right = transpile(state, node.right)
+    operator = node.operator
+    pos = position(node.operator)
+    if node.operator isa LossyTrees.Operator{:+}
+        return quote
+            if isa($left, Float64) && isa($right, Float64)
+                $left + $right
+            elseif isa($left, String) && isa($right, String)
+                $left * $right
+            else
+                throw(__RuntimeError__("Operands must be two numbers or two strings.", $pos))
+            end
+        end
+    elseif node.operator isa LossyTrees.Operator{:(==)}
+        # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
+        # but in Julia (not Lox) true == 1, so we need to special case this.
+        return quote
+            if xor($left isa Bool, $right isa Bool)
+                false
+            else
+                $left == $right
+            end
+        end
+    elseif node.operator isa LossyTrees.Operator{:!=}
+        # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
+        # but in Julia (not Lox) true == 1, so we need to special case this.
+        return quote
+            if xor($left isa Bool, $right isa Bool)
+                true
+            else
+                $left != $right
+            end
+        end
+    else
+        # All other ops follow the same pattern of checking runtime types and then passing through cleanly.
+        op_kind = _op_kind(operator)
+        @assert op_kind ∈ [:-, :/, :*, :>, :>=, :<, :<=]
+        return Expr(
+            :block,
+            :(__raise_on_non_number_in_operation__($pos, $left, $right)),
+            Expr(:call, op_kind, left, right)
+        )
+    end
 end
 
 

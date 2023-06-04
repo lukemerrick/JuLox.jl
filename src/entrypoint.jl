@@ -133,7 +133,7 @@ function run_transpiled(output_io::IO, error_io::IO, state::Transpile.Transpiler
     native_expr = Transpile.transpile(state, lossy_tree)
     if verbose
         println(output_io, "Transpiled Code")
-        print_tree(output_io, native_expr)
+        print_tree(output_io, native_expr; maxdepth=10)
         println(output_io)
         if verbose
             println(output_io, "Interpreter")
