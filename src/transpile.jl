@@ -88,13 +88,19 @@ end
 #-------------------------------------------------------------------------------
 # Transpiler logic.
 
+function _blockify(state::TranspilerState, statements::Vector{<:LossyTrees.AbstractStatement})
+    Expr(:block, (transpile(state, statement) for statement in statements)...)
+end
+
 function transpile(state::TranspilerState, node::LossyTrees.Toplevel)
-    return Expr(:block, (transpile(state, statement) for statement in node.statements)...)
+    return _blockify(state, node.statements)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.Block)
-    # In Julia, :block doesn't introduce nested hard scope, while :let does.
-    return Expr(:let, (transpile(state, statement) for statement in node.statements)...)
+    # In Julia, :block doesn't introduce nested hard scope, while :let does, so for a Lox block
+    # we wrap a Julia :block with a Julia :let.
+    # The extra Expr(:block) is equivalent to a newline after `let` in Julia source and is needed in this case.
+    return Expr(:let, Expr(:block), _blockify(state, node.statements))
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.ExpressionStatement)
