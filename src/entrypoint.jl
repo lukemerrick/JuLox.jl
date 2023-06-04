@@ -32,15 +32,18 @@ function print_tokens(io::IO, tokens::Vector{Tokenize.Token})
     end
 end
 
-function print_analysis_results(io::IO, locals)
+function print_analysis_results(io::IO, locals, source::String)
     println(io, "Variable Resolution")
-    println(io, "Name           Position      Up")
-    println(io, "-------------------------------")
+    println(io, "Name           Kind           Line Column      Up")
+    println(io, "-------------------------------------------------")
     for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
+        line_number, column_number = Interpret.linecol(position(key), source)
         println(
             io,
             rpad(":$(LossyTrees.value(key.name))", 15)
-            * lpad("$(position(key))", 8)
+            * rpad(string(SyntaxKinds.kind(key)), 15)
+            * lpad(line_number, 4)
+            * lpad(column_number, 7)
             * lpad(string(value), 8)
         )
     end
@@ -51,72 +54,74 @@ print_tokens(tokens::Vector{Tokenize.Token}) = print_tokens(stdout, tokens)
 
 function _prepare_to_run(output_io::IO, error_io::IO, source::String, verbose::Bool)
     # Edge case: empty string.
-    isempty(source) && return nothing
+    isempty(source) && return 0
 
     # Parse.
     result = Parse.parse_lox(source)
 
-    if !isempty(result.tokens)
-        if verbose
-            # Print tokens.
-            print_tokens(output_io, result.tokens)
-            println(output_io)
+    # Edge case: no syntax to parse (e.g. only a comment).
+    isempty(result.tokens) && return 0
 
-            # Print events.
-            println(output_io, "Events")
-            for event in result.events
-                println(output_io, event)
-            end
+    if verbose
+        # Print tokens.
+        print_tokens(output_io, result.tokens)
+        println(output_io)
 
-            println(output_io)
+        # Print events.
+        println(output_io, "Events")
+        for event in result.events
+            println(output_io, event)
         end
 
-        # Construct lossless syntax tree.
-        tree = LosslessTrees.build_tree(result)
-
-        if verbose
-            # Print lossless tree.
-            println(output_io, "Lossless Syntax Tree")
-            println(output_io, tree)
-        end
-
-        # Validate the syntax.
-        diagnostics = SyntaxValidation.validate_syntax(tree)
-        if !isempty(diagnostics)
-            SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
-            return 65
-        end
-
-        # Craft the lossy tree.
-        lossy_tree = LossyTrees.to_lossy(tree)
-
-        # Print the lossy tree.
-        if verbose
-            println(output_io, "Lossy Syntax Tree")
-            println(output_io, lossy_tree)
-        end
-
-        # Resolve variables (resolving the semantics).
-        locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
-        if !isempty(diagnostics)
-            SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
-            return 65
-        end
-
-        # Print analysis results.
-        if verbose
-            print_analysis_results(output_io, locals)
-        end
-        return lossy_tree, locals
+        println(output_io)
     end
-    return nothing
+
+    # Construct lossless syntax tree.
+    tree = LosslessTrees.build_tree(result)
+
+    if verbose
+        # Print lossless tree.
+        println(output_io, "Lossless Syntax Tree")
+        println(output_io, tree)
+    end
+
+    # Validate the syntax.
+    diagnostics = SyntaxValidation.validate_syntax(tree)
+    if !isempty(diagnostics)
+        SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
+        return 65
+    end
+
+    # Craft the lossy tree.
+    lossy_tree = LossyTrees.to_lossy(tree)
+
+    # Print the lossy tree.
+    if verbose
+        println(output_io, "Lossy Syntax Tree")
+        println(output_io, lossy_tree)
+    end
+
+    # Resolve variables (resolving the semantics).
+    locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
+    if !isempty(diagnostics)
+        SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
+        return 65
+    end
+
+    # Print analysis results.
+    if verbose
+        print_analysis_results(output_io, locals, source)
+    end
+    return lossy_tree, locals
 end
 
 function run(output_io::IO, error_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
-    prep_result = _prepare_to_run(output_io, error_io, source, verbose)
-    isnothing(prep_result) && return 0
-
     # Tokenize, parse, and analyze.
+    prep_result = _prepare_to_run(output_io, error_io, source, verbose)
+
+    # Check if `prep_result` returned a return code (i.e. empty input or error) that should be propagated.
+    # Otherwise, unpack.
+    prep_result isa Int && return prep_result
     lossy_tree, locals = prep_result
 
     # Tell the interpreter about the new local scope mapping from static analysis.
@@ -133,9 +138,12 @@ function run(output_io::IO, error_io::IO, interpreter_state::Interpret.Interpret
 end
 
 function run_transpiled(output_io::IO, error_io::IO, state::Transpile.TranspilerState, source::String, verbose::Bool)
-    prep_result = _prepare_to_run(output_io, error_io, source, verbose)
-    isnothing(prep_result) && return 0
     # Tokenize, parse, and analyze.
+    prep_result = _prepare_to_run(output_io, error_io, source, verbose)
+
+    # Check if `prep_result` returned a return code (i.e. empty input or error) that should be propagated.
+    # Otherwise, unpack.
+    prep_result isa Int && return prep_result
     lossy_tree, locals = prep_result
 
     # Tell the interpreter about the new local scope mapping from static analysis.
@@ -152,7 +160,7 @@ function run_transpiled(output_io::IO, error_io::IO, state::Transpile.Transpiler
         println(output_io)
         println(output_io, "(As a Tree)")
         println(output_io, "-----------")
-        print_tree(output_io, native_expr; maxdepth=10)
+        print_tree(output_io, native_expr; maxdepth=9_001)
         println(output_io)
         println(output_io, "Interpreter")
         println(output_io, "-----------")
