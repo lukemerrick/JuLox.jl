@@ -89,7 +89,9 @@ end
 # Transpiler logic.
 
 function _blockify(state::TranspilerState, statements::Vector{<:LossyTrees.AbstractStatement})
-    Expr(:block, (transpile(state, statement) for statement in statements)...)
+    res = Expr(:block)
+    res.args = [transpile(state, statement) for statement in statements]
+    return res
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.Toplevel)
@@ -115,7 +117,7 @@ end
 
 function transpile(state::TranspilerState, node::LossyTrees.LeafValue)
     result = LossyTrees.value(node)
-    @assert typeof(result) ∉ Set([Symbol, LossyTrees.ThisValue, LossyTrees.SuperValue])
+    @assert typeof(result) ∉ Set([Symbol, LossyTrees.ThisValue, LossyTrees.SuperValue]) "Expect literal"
     return result
 end
 
@@ -124,33 +126,58 @@ function transpile(state::TranspilerState, node::LossyTrees.Grouping)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.Unary)
+    # Since the operand can be complicated, we transpile to a variable assingment for re-use in checks.
     operand = transpile(state, node.right)
-    operator = node.operator
+    bind_operand = Expr(:(=), :__julox_operand__, operand)
+
     if node.operator isa LossyTrees.Operator{:-}
-        pos = position(operator)
-        return quote
-            __raise_on_non_number_in_operation__($pos, $operand)
-            -$operand
+        # Special case on number literal.
+        # TODO: Add check for invalid literal (nil, String) to semantic analysis.
+        if isa(operand, Float64)
+            return -operand
         end
+
+        # General case of expression or variable.
+        raise_on_nonnumber_operand = Expr(:call, :__raise_on_non_number_in_operation__, position(node.operator), :__julox_operand__)
+        negate_operand = Expr(:call, :-, :__julox_operand__)
+        return Expr(:block, bind_operand, raise_on_nonnumber_operand, negate_operand)
+
     elseif operator isa LossyTrees.Operator{:!}
-        return :(!__truthy__($operand))
+        # Special case on literals.
+        if isa(operand, Bool)
+            return operand
+        elseif isa(operand, String) || isa(operand, Float64)
+            return true
+        elseif isnothing(operand)
+            return false
+        end
+
+        # General case of expression or variable.
+        operand_is_truthy = Expr(:call, :__truthy__, __julox_operand__)
+        operand_is_not_truthy = Expr(:call, :!, operand_is_truthy)
+        return Expr(:block, bind_operand, operand_is_not_truthy)
     end
     error("unreachable")
 end
 
 _op_kind(::LossyTrees.Operator{T}) where {T} = T
 
+# TODO: Special case literals like in Unary.
 function transpile(state::TranspilerState, node::LossyTrees.Infix)
-    left = transpile(state, node.left)
-    right = transpile(state, node.right)
+    # First we bind the results of transpiling the left and right to new variables.
+    bind_left = Expr(:(=), :__julox_left__, transpile(state, node.left))
+    bind_right = Expr(:(=), :__julox_right__, transpile(state, node.right))
+    bind_left_right = Expr(:block, bind_left, bind_right)
+
+    # Then we transpile what to do with those new variables.
     operator = node.operator
     pos = position(node.operator)
     if node.operator isa LossyTrees.Operator{:+}
-        return :(
-            if isa($left, Float64) && isa($right, Float64)
-                $left + $right
-            elseif isa($left, String) && isa($right, String)
-                $left * $right
+        eval_infix_expr = :(
+            if isa(__julox_left__, Float64) && isa(__julox_right__, Float64)
+                __julox_left__ + __julox_right__
+            elseif isa(__julox_left__, String) && isa(__julox_right__, String)
+                __julox_left__ * __julox_right__
             else
                 throw(__RuntimeError__("Operands must be two numbers or two strings.", $pos))
             end
@@ -158,21 +185,21 @@ function transpile(state::TranspilerState, node::LossyTrees.Infix)
     elseif node.operator isa LossyTrees.Operator{:(==)}
         # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
         # but in Julia (not Lox) true == 1, so we need to special case this.
-        return :(xor($left isa Bool, $right isa Bool) ? false : $left == $right)
+        eval_infix_expr = :(xor(__julox_left__ isa Bool, __julox_right__ isa Bool) ? false : __julox_left__ == __julox_right__)
     elseif node.operator isa LossyTrees.Operator{:!=}
         # NOTE: Same special case as above in `==`.
-        return :(xor($left isa Bool, $right isa Bool) ? true : $left != $right)
+        eval_infix_expr = :(xor(__julox_left__ isa Bool, __julox_right__ isa Bool) ? true : __julox_left__ != __julox_right__)
     else
         # All other ops follow the same pattern of checking runtime types and then passing through cleanly.
         op_kind = _op_kind(operator)
         @assert op_kind ∈ [:-, :/, :*, :>, :>=, :<, :<=]
-        return Expr(
+        eval_infix_expr = Expr(
             :block,
-            :(__raise_on_non_number_in_operation__($pos, $left, $right)),
-            Expr(:call, op_kind, left, right)
+            :(__raise_on_non_number_in_operation__($pos, __julox_left__, __julox_right__)),
+            Expr(:call, op_kind, :__julox_left__, :__julox_right__)
         )
     end
-    error("unreachable")
+    return Expr(:let, bind_left_right, eval_infix_expr)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.VariableDeclaration)
@@ -196,20 +223,27 @@ function transpile(state::TranspilerState, node::LossyTrees.Assign)
 
     # If the variable is global, we need to transpile to `global x = "foo"` instead of `x = "foo"`.
     # See: https://docs.julialang.org/en/v1/manual/variables-and-scoping/#local-scope
-    is_global_target = !haskey(state.local_scope_map, node.name)
+    is_global_target = !haskey(state.local_scope_map, node)
     if is_global_target
         result = Expr(:global, result)
     end
     return result
 end
 
+function _raise_on_undefined(pos::Int, lox_identifier::Symbol, item_kind::String)
+    julia_identifier = _mangle_identifier(lox_identifier)
+    error_message = "Cannot get undefined $(item_kind) '$(lox_identifier)'"
+    return :(!(@isdefined $julia_identifier) && throw(__RuntimeError__($error_message, $pos)))
+end
+
 function transpile(state::TranspilerState, node::LossyTrees.Variable)
-    var_name::Symbol = _mangle_identifier(LossyTrees.value(node.name))
-    return var_name
+    lox_identifier::Symbol = LossyTrees.value(node.name)
+    raise_on_undefined_expr = _raise_on_undefined(position(node.name), lox_identifier, "variable")
+    return Expr(:block, raise_on_undefined_expr, _mangle_identifier(lox_identifier))
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.If)
-    condition = transpile(state, node.condition)
+    condition = Expr(:call, :__truthy__, transpile(state, node.condition))
     then_statement = transpile(state, node.then_statement)
     if isnothing(node.else_statement)
         return Expr(:if, condition, then_statement)
@@ -221,7 +255,7 @@ function transpile(state::TranspilerState, node::LossyTrees.If)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.While)
-    condition = transpile(state, node.condition)
+    condition = Expr(:call, :__truthy__, transpile(state, node.condition))
     if isnothing(node.statement)
         return Expr(:while, condition)
     else
