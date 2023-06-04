@@ -43,8 +43,10 @@ struct LeafValue{T <: Union{String,Float64,Nothing,Bool,Symbol,ThisValue,SuperVa
             return new{Float64}(lossless_node, parse(Float64, text))
         elseif k ∈ KSet"nil omitted_var_initializer"
             return new{Nothing}(lossless_node, nothing)
-        elseif k ∈ KSet"false true omitted_for_condition"
+        elseif k ∈ KSet"false true"
             return new{Bool}(lossless_node, parse(Bool, text))
+        elseif k == K"omitted_for_condition"
+            return new{Bool}(lossless_node, true)
         elseif k == K"Identifier"
             return new{Symbol}(lossless_node, Symbol(text))
         elseif k == K"this"

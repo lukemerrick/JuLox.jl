@@ -123,10 +123,7 @@ end
 
 InterpreterState() = InterpreterState(stdout, stderr)
 
-function update_local_scope_map!(state::InterpreterState, new_scope_map::Dict{LossyTrees.AbstractExpression,Int})
-    merge!(state.local_scope_map, new_scope_map)
-    return nothing
-end
+local_scope_map(state::InterpreterState) = state.local_scope_map
 
 function enter_environment(f::Function, state::InterpreterState, environment::Environment; only_if::Bool=true)
     if only_if

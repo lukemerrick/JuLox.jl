@@ -115,12 +115,18 @@ end
 function run(output_io::IO, error_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
     prep_result = _prepare_to_run(output_io, error_io, source, verbose)
     isnothing(prep_result) && return 0
+
+    # Tokenize, parse, and analyze.
     lossy_tree, locals = prep_result
+
+    # Tell the interpreter about the new local scope mapping from static analysis.
+    merge!(Interpret.local_scope_map(interpreter_state), locals)
+
+    # Interpret.
     if verbose
         println(output_io, "Interpreter")
         println(output_io, "-----------")
     end
-    Interpret.update_local_scope_map!(interpreter_state, locals)
     had_error = Interpret.interpret(interpreter_state, lossy_tree, source)
     exit_code = had_error ? 70 : 0
     return exit_code
@@ -129,18 +135,30 @@ end
 function run_transpiled(output_io::IO, error_io::IO, state::Transpile.TranspilerState, source::String, verbose::Bool)
     prep_result = _prepare_to_run(output_io, error_io, source, verbose)
     isnothing(prep_result) && return 0
+    # Tokenize, parse, and analyze.
     lossy_tree, locals = prep_result
+
+    # Tell the interpreter about the new local scope mapping from static analysis.
+    merge!(Transpile.local_scope_map(state), locals)
+
+    # Transpile.
     native_expr = Transpile.transpile(state, lossy_tree)
+
+    # Pretty print stuff.
     if verbose
         println(output_io, "Transpiled Code")
+        println(output_io, "---------------")
+        println(output_io, native_expr)
+        println(output_io)
+        println(output_io, "(As a Tree)")
+        println(output_io, "-----------")
         print_tree(output_io, native_expr; maxdepth=10)
         println(output_io)
-        if verbose
-            println(output_io, "Interpreter")
-            println(output_io, "-----------")
-        end
+        println(output_io, "Interpreter")
+        println(output_io, "-----------")
     end
-    # TODO: Figure out if we need to apply the scope map somehow to the interpreter.
+
+    # Interpret.
     had_error = Transpile.interpret_transpiled(state, native_expr, source)
     exit_code = had_error ? 70 : 0
     return exit_code
@@ -224,16 +242,16 @@ function parse_command_line(args)
     settings = ArgParseSettings()
     @add_arg_table settings begin
         "--verbose"
-            help = "display tokenization, parsing, and analysis in addition to interpreting the code"
-            action = :store_true
+        help = "display tokenization, parsing, and analysis in addition to interpreting the code"
+        action = :store_true
         "--transpile"
-            help = "transpile Lox to Julia for higher performance"
-            action = :store_true
+        help = "transpile Lox to Julia for higher performance"
+        action = :store_true
         "--profile-internals"
-            help = "use the Profile Julia package to profile JuLox as it runs"
-            action = :store_true
+        help = "use the Profile Julia package to profile JuLox as it runs"
+        action = :store_true
         "filepath"
-            help = "path of .lox file to run (REPL launched if not given)"
+        help = "path of .lox file to run (REPL launched if not given)"
     end
     parsed_args = parse_args(args, settings)
     return parsed_args
