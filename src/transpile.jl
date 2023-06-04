@@ -36,6 +36,10 @@ const JULOX_RUNTIME = quote
     end
 end
 
+const JULOX_MANGLE = "__loxname_"
+
+_mangle_identifier(s::Symbol) = Symbol(JULOX_MANGLE * string(s))
+
 #-------------------------------------------------------------------------------
 # Transpiler state and evaluation.
 
@@ -78,7 +82,7 @@ end
 #-------------------------------------------------------------------------------
 # Transpiler logic.
 
-function transpile(state::TranspilerState, node::LossyTrees.Toplevel)
+function transpile(state::TranspilerState, node::Union{LossyTrees.Toplevel,LossyTrees.Block})
     return Expr(:block, (transpile(state, statement) for statement in node.statements)...)
 end
 
@@ -166,5 +170,25 @@ function transpile(state::TranspilerState, node::LossyTrees.Infix)
     end
 end
 
+function transpile(state::TranspilerState, node::LossyTrees.VariableDeclaration)
+    var_name::Symbol = _mangle_identifier(LossyTrees.value(node.name))
+    var_expr = transpile(state, node.initializer)
+    return Expr(:(=), var_name, var_expr)
+end
+
+function transpile(state::TranspilerState, node::LossyTrees.Assign)
+    var_name::Symbol = _mangle_identifier(LossyTrees.value(node.name))
+    var_expr = transpile(state, node.value)
+    # NOTE: Since static analysis checks for nonexistent symbols before the transpilation step,
+    # `var_name` must already be defined in the current Julia scope.
+    # If we don't want to trust the static analysis step, we can add a runtime function
+    # akin to `__raise_on_non_number_in_operation__` that uses the `@isdefined` macro.
+    return Expr(:(=), var_name, var_expr)
+end
+
+function transpile(state::TranspilerState, node::LossyTrees.Variable)
+    var_name::Symbol = _mangle_identifier(LossyTrees.value(node.name))
+    return var_name
+end
 
 end  # module Transpile
