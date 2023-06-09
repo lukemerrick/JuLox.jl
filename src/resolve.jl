@@ -9,20 +9,20 @@ using JuLox: JuLox, LossyTrees, SyntaxValidation
 # Building blocks.
 
 # Type alias.
-Scope = Dict{Symbol,Bool}
+Scope = Dict{Symbol,Tuple{LossyTrees.AbstractExpression,Bool}}
 
 _assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method, :initializer)
 _assert_valid_class_type(current_class_type::Symbol) = @assert current_class_type ∈ (:none, :class, :subclass)
 
 struct ResolverState
     scopes::Vector{Scope}
-    locals::Dict{LossyTrees.AbstractExpression,Int}
+    locals::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
     current_function::Ref{Symbol}
     current_class::Ref{Symbol}
 
     function ResolverState()
-        return new(Scope[], Dict{LossyTrees.AbstractExpression,Int}(), SyntaxValidation.Diagnostic[], Ref(:none), Ref(:none))
+        return new(Scope[], Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}(), SyntaxValidation.Diagnostic[], Ref(:none), Ref(:none))
     end
 end
 
@@ -53,7 +53,7 @@ function declare!(state::ResolverState, name::LossyTrees.Identifier)
     end
 
     # Track that this variable has been declared (but not defined yet) in the current scope.
-    current_scope[symbol] = false
+    current_scope[symbol] = (name, false)
 
     return nothing
 end
@@ -66,7 +66,7 @@ function define!(state::ResolverState, name::LossyTrees.Identifier)
     current_scope = last(state.scopes)
     symbol = LossyTrees.value(name)
     @assert haskey(current_scope, symbol)
-    current_scope[symbol] = true
+    current_scope[symbol] = (current_scope[symbol][1], true)
     return nothing
 end
 
@@ -111,7 +111,7 @@ function resolve_local(
     for (i, scope) in enumerate(state.scopes[end:-1:1])
         if haskey(scope, symbol)
             depth = i - 1
-            resolve(state, node, depth)
+            state.locals[node] = (scope[symbol][1], depth)
             return nothing
         end
     end
@@ -123,7 +123,9 @@ end
 
 function analyze(state::ResolverState, node::LossyTrees.Block)
     enter_scope(state) do state
-        analyze.(Ref(state), node.statements)
+        for statement in node.statements
+            analyze(state, statement)
+        end
     end
     return nothing
 end
@@ -142,7 +144,7 @@ function analyze(state::ResolverState, node::LossyTrees.Variable)
     if (
         !isempty(state.scopes)
         && haskey(last(state.scopes), symbol)
-        && !last(state.scopes)[symbol]
+        && !last(state.scopes)[symbol][2]
     )
         diagnostic = SyntaxValidation.Diagnostic(
             node.lossless_node, "can't read local variable in its own initializer"
@@ -262,7 +264,9 @@ function analyze_function(state::ResolverState, node::LossyTrees.FunctionDeclara
         end
 
         # Deal with the body, explicitly *not* entering a new scope for this block.
-        analyze.(Ref(state), node.body.statements)
+        for statement in node.body.statements
+            analyze(state, statement)
+        end
     end
 end
 
@@ -272,7 +276,9 @@ end
 function analyze(state::ResolverState, node::LossyTrees.Toplevel)
     # NOTE: We do not begin/end scope at the toplevel, because global scope is
     # special-cased as separate from local scope.
-    analyze.(Ref(state), node.statements)
+    for statement in node.statements
+        analyze(state, statement)
+    end
     return nothing
 end
 

@@ -34,17 +34,19 @@ end
 
 function print_analysis_results(io::IO, locals, source::String)
     println(io, "Variable Resolution")
-    println(io, "Name           Kind           Line Column      Up")
-    println(io, "-------------------------------------------------")
-    for (key, value) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
-        line_number, column_number = Interpret.linecol(position(key), source)
+    println(io, "Name           Kind           Position Line Column      Up")
+    println(io, "----------------------------------------------------------")
+    for (key, (_, depth)) in sort(collect(pairs(locals)); by=(p -> position(p[1])))
+        pos = position(key)
+        line_number, column_number = Interpret.linecol(pos, source)
         println(
             io,
             rpad(":$(LossyTrees.value(key.name))", 15)
             * rpad(string(SyntaxKinds.kind(key)), 15)
+            * lpad(pos, 9)
             * lpad(line_number, 4)
             * lpad(column_number, 7)
-            * lpad(string(value), 8)
+            * lpad(string(depth), 8)
         )
     end
     println(io)

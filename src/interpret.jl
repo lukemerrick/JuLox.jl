@@ -103,7 +103,7 @@ mutable struct InterpreterState
     output_io::IO
     error_io::IO
     environment::Environment
-    local_scope_map::Dict{LossyTrees.AbstractExpression,Int}
+    local_scope_map::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
 
     function InterpreterState(output_io::IO, error_io::IO)
         # Initialize an empty global environment.
@@ -115,7 +115,7 @@ mutable struct InterpreterState
         end
 
         # Initialize an empty variable resolution map.
-        local_scope_map = Dict{LossyTrees.AbstractExpression,Int}()
+        local_scope_map = Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}()
 
         return new(output_io, error_io, global_environment, local_scope_map)
     end
@@ -124,6 +124,12 @@ end
 InterpreterState() = InterpreterState(stdout, stderr)
 
 local_scope_map(state::InterpreterState) = state.local_scope_map
+function determine_distance(state::InterpreterState, node::LossyTrees.AbstractExpression)
+    res = get(state.local_scope_map, node, nothing)
+    isnothing(res) && return res
+    _, distance = res
+    return distance
+end
 
 function enter_environment(f::Function, state::InterpreterState, environment::Environment; only_if::Bool=true)
     if only_if
@@ -480,20 +486,20 @@ end
 function evaluate(state::InterpreterState, node::LossyTrees.Assign)
     value = evaluate(state, node.value)
     identifier = node.name
-    distance = get(state.local_scope_map, node, nothing)
+    distance = determine_distance(state, node)
     assign!(state.environment, distance, LossyTrees.value(identifier), value, position(identifier))
     return value
 end
 
 function evaluate(state::InterpreterState, node::Union{LossyTrees.Variable,LossyTrees.ThisExpression})
     identifier = node.name
-    distance = get(state.local_scope_map, node, nothing)
+    distance = determine_distance(state, node)
     return get(state.environment, distance, LossyTrees.value(identifier), position(identifier))
 end
 
 function evaluate(state::InterpreterState, node::LossyTrees.SuperExpression)
     identifier = node.name
-    distance = get(state.local_scope_map, node, nothing)
+    distance = determine_distance(state, node)
     superclass = get(state.environment, distance, :super, position(identifier))
     object = get(state.environment, distance - 1, :this, position(node))
     method = find_method(superclass, LossyTrees.value(node.method_name))

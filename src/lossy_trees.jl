@@ -427,6 +427,12 @@ end
 function _value_str(node::AbstractLossyNode)
     node isa NilLiteral && return "nil"
     node isa LeafValue && return repr(value(node))
+
+    # Special cases for For desugaring.
+    node isa Block && return "block"
+    node isa While && return "while"
+    node isa ExpressionStatement && return "expression_statement"
+
     return SyntaxKinds.kind(lossless_node(node))
 end
 
