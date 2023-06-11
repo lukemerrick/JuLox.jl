@@ -47,7 +47,7 @@ struct TranspilerState
     error_io::IO
     mod::Module
     global_declarations::Set{LossyTrees.Identifier}
-    local_scope_map::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
+    local_scope_map::Dict{LossyTrees.AbstractExpression,Tuple{Union{Nothing,LossyTrees.Identifier},Int}}
     identifier_mangle_map::Dict{LossyTrees.Identifier,Symbol}
     identifier_mangle_counter::Ref{Int}
 
@@ -60,7 +60,7 @@ struct TranspilerState
 
         # Initialize empty sets/maps.
         global_declarations = Set{LossyTrees.Identifier}()
-        local_scope_map = Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}()
+        local_scope_map = Dict{LossyTrees.AbstractExpression,Tuple{Union{Nothing,LossyTrees.Identifier},Int}}()
         identifier_mangle_map = Dict{LossyTrees.AbstractExpression,Symbol}()
 
         return new(output_io, error_io, mod, global_declarations, local_scope_map, identifier_mangle_map, Ref(1))
@@ -258,8 +258,18 @@ function transpile(state::TranspilerState, node::LossyTrees.Assign)
     var_name::Symbol = _get_mangled_identifier_name(state, node)
     var_expr = transpile(state, node.value)
 
-    # Prepare the resulting expression.
-    result = Expr(:block, _raise_on_undefined(state, node), Expr(:(=), var_name, var_expr))
+    # Create the assignment expression.
+    assign_expr = Expr(:(=), var_name, var_expr)
+
+    # If the variable is global, we need to transpile to `global x = "foo"` instead of `x = "foo"`.
+    # See: https://docs.julialang.org/en/v1/manual/variables-and-scoping/#local-scope
+    is_global_target = !haskey(local_scope_map(state), node)
+    if is_global_target
+        assign_expr = Expr(:global, assign_expr)
+    end
+
+    # Tack on JuLox error messaging around undefined errors.
+    result = Expr(:block, _raise_on_undefined(state, node), assign_expr)
     return result
 end
 

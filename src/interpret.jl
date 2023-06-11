@@ -103,7 +103,7 @@ mutable struct InterpreterState
     output_io::IO
     error_io::IO
     environment::Environment
-    local_scope_map::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
+    local_scope_map::Dict{LossyTrees.AbstractExpression,Tuple{Union{Nothing,LossyTrees.Identifier},Int}}
 
     function InterpreterState(output_io::IO, error_io::IO)
         # Initialize an empty global environment.
@@ -115,7 +115,7 @@ mutable struct InterpreterState
         end
 
         # Initialize an empty variable resolution map.
-        local_scope_map = Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}()
+        local_scope_map = Dict{LossyTrees.AbstractExpression,Tuple{Union{Nothing,LossyTrees.Identifier},Int}}()
 
         return new(output_io, error_io, global_environment, local_scope_map)
     end

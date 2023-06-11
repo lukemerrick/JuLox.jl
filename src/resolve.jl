@@ -9,7 +9,7 @@ using JuLox: JuLox, LossyTrees, SyntaxValidation
 # Building blocks.
 
 # Type alias.
-Scope = Dict{Symbol,Tuple{LossyTrees.AbstractExpression,Bool}}
+Scope = Dict{Symbol,Tuple{Union{Nothing,LossyTrees.AbstractExpression},Bool}}
 
 _assert_valid_function_scope(current_function::Symbol) = @assert current_function ∈ (:none, :function, :method, :initializer)
 _assert_valid_class_type(current_class_type::Symbol) = @assert current_class_type ∈ (:none, :class, :subclass)
@@ -17,7 +17,7 @@ _assert_valid_class_type(current_class_type::Symbol) = @assert current_class_typ
 struct ResolverState
     scopes::Vector{Scope}
     global_declarations::Set{LossyTrees.Identifier}
-    locals::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
+    locals::Dict{LossyTrees.AbstractExpression,Tuple{Union{Nothing,LossyTrees.Identifier},Int}}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
     current_function::Ref{Symbol}
     current_class::Ref{Symbol}
@@ -26,7 +26,7 @@ struct ResolverState
         return new(
             Scope[],
             Set{LossyTrees.Identifier}(),
-            Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}(),
+            Dict{LossyTrees.AbstractExpression,Tuple{Union{Nothing,LossyTrees.Identifier},Int}}(),
             SyntaxValidation.Diagnostic[],
             Ref(:none),
             Ref(:none),
@@ -235,12 +235,12 @@ function analyze(state::ResolverState, node::LossyTrees.ClassDeclaration)
     is_subclass = !isnothing(node.superclass)
     enter_scope(state; only_if=is_subclass) do state
         if is_subclass
-            last(state.scopes)[:super] = true
+            last(state.scopes)[:super] = (nothing, true)
         end
 
         # Handle the `this` keyword by entering a new scope defining `this` in that scope.
         enter_scope(state) do state
-            last(state.scopes)[:this] = true
+            last(state.scopes)[:this] = (nothing, true)
 
             # Enter class state so that references to `this`, `super` etc. are allowed.
             enter_class_state(state, is_subclass ? :subclass : :class) do state
