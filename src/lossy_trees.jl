@@ -9,7 +9,9 @@ using JuLox.SyntaxKinds: @K_str, @KSet_str
 abstract type AbstractLossyNode end
 abstract type AbstractLogicOperator <: AbstractLossyNode end
 abstract type AbstractExpression <: AbstractLossyNode end
+abstract type AbstractAccess <: AbstractExpression end
 abstract type AbstractStatement <: AbstractLossyNode end
+abstract type AbstractDeclaration <: AbstractStatement end
 
 """Specify the kinds of nodes to drop from the lossless source tree to create the AST."""
 function is_kept_kind(node::LosslessTrees.LosslessLeafNode)
@@ -89,23 +91,23 @@ end
 #-------------------------------------------------------------------------------
 # Inner node expressions.
 
-struct ThisExpression <: AbstractExpression
+struct ThisExpression <: AbstractAccess
     lossless_node::LosslessTrees.LosslessInnerNode
     name::This
 end
 
-struct SuperExpression <: AbstractExpression
+struct SuperExpression <: AbstractAccess
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Super
     method_name::Identifier
 end
 
-struct Variable <: AbstractExpression
+struct Variable <: AbstractAccess
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
 end
 
-struct Assign{V<:AbstractExpression} <: AbstractExpression
+struct Assign{V<:AbstractExpression} <: AbstractAccess
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     value::V
@@ -247,20 +249,20 @@ struct Print{E<:AbstractExpression} <: AbstractStatement
     expression::E
 end
 
-struct VariableDeclaration{E<:AbstractExpression} <: AbstractStatement
+struct VariableDeclaration{E<:AbstractExpression} <: AbstractDeclaration
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     initializer::E
 end
 
-struct FunctionDeclaration <: AbstractStatement
+struct FunctionDeclaration <: AbstractDeclaration
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     parameters::Vector{Identifier}
     body::Block
 end
 
-struct ClassDeclaration <: AbstractStatement
+struct ClassDeclaration <: AbstractDeclaration
     lossless_node::LosslessTrees.LosslessInnerNode
     name::Identifier
     superclass::Union{Nothing,Variable}

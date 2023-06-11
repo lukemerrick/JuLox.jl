@@ -7,23 +7,23 @@ using JuLox.Interpret: linecol
 # Define functions that run inside the evaluation module as a runtime.
 
 const JULOX_RUNTIME = quote
-    struct __RuntimeError__ <: Exception
+    struct RuntimeError <: Exception
         msg::String
         position::Int
     end
 
-    function __raise_on_non_number_in_operation__(pos::Int, values::Any...)
+    function raise_on_non_number_in_operation(pos::Int, values::Any...)
         if !all(isa.(values, Float64))
-            throw(__RuntimeError__("Oparation requires number operand(s).", pos))
+            throw(RuntimeError("Oparation requires number operand(s).", pos))
         end
         return nothing
     end
 
-    function __truthy__(value::Any)
+    function truthy(value::Any)
         return !(isnothing(value) || value === false)
     end
 
-    function __stringify__(value)
+    function stringify(value)
         isnothing(value) && return "nil"
         if isa(value, Float64)
             text = string(value)
@@ -36,9 +36,8 @@ const JULOX_RUNTIME = quote
     end
 end
 
-const JULOX_MANGLE = "__loxname_"
+const JULOX_MANGLE_PREFIX = "__mangled"
 
-_mangle_identifier(s::Symbol) = Symbol(JULOX_MANGLE * string(s))
 
 #-------------------------------------------------------------------------------
 # Transpiler state and evaluation.
@@ -47,7 +46,10 @@ struct TranspilerState
     output_io::IO
     error_io::IO
     mod::Module
-    local_scope_map::Dict{LossyTrees.AbstractExpression,Int}
+    global_declarations::Set{LossyTrees.Identifier}
+    local_scope_map::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
+    identifier_mangle_map::Dict{LossyTrees.Identifier,Symbol}
+    identifier_mangle_counter::Ref{Int}
 
     function TranspilerState(output_io::IO, error_io::IO)
         # Create a fresh module to encapsulate the JuLox code.
@@ -56,23 +58,66 @@ struct TranspilerState
         # Initialize JuLox runtime.
         Base.eval(mod, JULOX_RUNTIME)
 
-        # Initialize an empty variable resolution map.
-        local_scope_map = Dict{LossyTrees.AbstractExpression,Int}()
+        # Initialize empty sets/maps.
+        global_declarations = Set{LossyTrees.Identifier}()
+        local_scope_map = Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}()
+        identifier_mangle_map = Dict{LossyTrees.AbstractExpression,Symbol}()
 
-        return new(output_io, error_io, mod, local_scope_map)
+        return new(output_io, error_io, mod, global_declarations, local_scope_map, identifier_mangle_map, Ref(1))
     end
 end
 
 TranspilerState() = TranspilerState(stdout, stderr)
 
+global_declarations(state::TranspilerState) = state.global_declarations
 local_scope_map(state::TranspilerState) = state.local_scope_map
+
+function _local_mangle(state::TranspilerState, name_node::LossyTrees.Identifier)
+    mangle_counter = state.identifier_mangle_counter[]
+    state.identifier_mangle_counter[] = mangle_counter + 1
+    lox_name = LossyTrees.value(name_node)
+    return Symbol("$(JULOX_MANGLE_PREFIX)_$(mangle_counter)_$(string(lox_name))")
+end
+
+function _global_mangle(name_node::LossyTrees.Identifier)
+    lox_name = LossyTrees.value(name_node)
+    return Symbol("$(JULOX_MANGLE_PREFIX)_$(string(lox_name))")
+end
+
+function _declare_mangled_identifier_name(state::TranspilerState, node::LossyTrees.AbstractDeclaration)
+    if node.name ∈ global_declarations(state)
+        # In global scope, we eschew the counter to intentionally allow collisions.
+        mangled_name = _global_mangle(node.name)
+    else
+        mangled_name = _local_mangle(state, node.name)
+        # Cache local mangles for lookup via the resolution map.
+        state.identifier_mangle_map[node.name] = mangled_name
+    end
+
+    # Return the name.
+    return mangled_name
+end
+
+function _get_mangled_identifier_name(state::TranspilerState, node::LossyTrees.AbstractAccess)
+    local_resolution = get(local_scope_map(state), node, nothing)
+    if !isnothing(local_resolution)
+        # If this access resolves to a locally declared entity, we use resolution to find the exact one.
+        resolved_declaration_identifier, _ = local_resolution
+        mangled_name = state.identifier_mangle_map[resolved_declaration_identifier]
+    else
+        # If we don't resolve locally, we want to mangle global style to match the global declaration(s).
+        mangled_name = _global_mangle(node.name)
+    end
+    return mangled_name
+end
+
 
 function interpret_transpiled(state::TranspilerState, expr::Expr, source::String)
     had_error = false
     try
         Base.eval(state.mod, expr)
     catch e
-        !isa(e, state.mod.__RuntimeError__) && rethrow()
+        !isa(e, state.mod.RuntimeError) && rethrow()
         line_number, column_number = linecol(e.position, source)
         linecol_str = "[line $(lpad(line_number, 4)), column $(lpad(column_number, 3))]"
         println(state.error_io, "Error @ $linecol_str - $(e.msg)")
@@ -112,7 +157,7 @@ end
 function transpile(state::TranspilerState, node::LossyTrees.Print)
     out_io = state.output_io
     expr = transpile(state, node.expression)
-    return :(println($out_io, __stringify__($expr)))
+    return :(println($out_io, stringify($expr)))
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.LeafValue)
@@ -128,7 +173,7 @@ end
 function transpile(state::TranspilerState, node::LossyTrees.Unary)
     # Since the operand can be complicated, we transpile to a variable assingment for re-use in checks.
     operand = transpile(state, node.right)
-    bind_operand = Expr(:(=), :__julox_operand__, operand)
+    bind_operand = Expr(:(=), :operand, operand)
 
     if node.operator isa LossyTrees.Operator{:-}
         # Special case on number literal.
@@ -138,11 +183,11 @@ function transpile(state::TranspilerState, node::LossyTrees.Unary)
         end
 
         # General case of expression or variable.
-        raise_on_nonnumber_operand = Expr(:call, :__raise_on_non_number_in_operation__, position(node.operator), :__julox_operand__)
-        negate_operand = Expr(:call, :-, :__julox_operand__)
+        raise_on_nonnumber_operand = Expr(:call, :raise_on_non_number_in_operation, position(node.operator), :operand)
+        negate_operand = Expr(:call, :-, :operand)
         return Expr(:block, bind_operand, raise_on_nonnumber_operand, negate_operand)
 
-    elseif operator isa LossyTrees.Operator{:!}
+    elseif node.operator isa LossyTrees.Operator{:!}
         # Special case on literals.
         if isa(operand, Bool)
             return operand
@@ -153,7 +198,7 @@ function transpile(state::TranspilerState, node::LossyTrees.Unary)
         end
 
         # General case of expression or variable.
-        operand_is_truthy = Expr(:call, :__truthy__, __julox_operand__)
+        operand_is_truthy = Expr(:call, :truthy, operand)
         operand_is_not_truthy = Expr(:call, :!, operand_is_truthy)
         return Expr(:block, bind_operand, operand_is_not_truthy)
     end
@@ -165,8 +210,8 @@ _op_kind(::LossyTrees.Operator{T}) where {T} = T
 # TODO: Special case literals like in Unary.
 function transpile(state::TranspilerState, node::LossyTrees.Infix)
     # First we bind the results of transpiling the left and right to new variables.
-    bind_left = Expr(:(=), :__julox_left__, transpile(state, node.left))
-    bind_right = Expr(:(=), :__julox_right__, transpile(state, node.right))
+    bind_left = Expr(:(=), :left, transpile(state, node.left))
+    bind_right = Expr(:(=), :right, transpile(state, node.right))
     bind_left_right = Expr(:block, bind_left, bind_right)
 
     # Then we transpile what to do with those new variables.
@@ -174,76 +219,86 @@ function transpile(state::TranspilerState, node::LossyTrees.Infix)
     pos = position(node.operator)
     if node.operator isa LossyTrees.Operator{:+}
         eval_infix_expr = :(
-            if isa(__julox_left__, Float64) && isa(__julox_right__, Float64)
-                __julox_left__ + __julox_right__
-            elseif isa(__julox_left__, String) && isa(__julox_right__, String)
-                __julox_left__ * __julox_right__
+            if isa(left, Float64) && isa(right, Float64)
+                left + right
+            elseif isa(left, String) && isa(right, String)
+                left * right
             else
-                throw(__RuntimeError__("Operands must be two numbers or two strings.", $pos))
+                throw(RuntimeError("Operands must be two numbers or two strings.", $pos))
             end
         )
     elseif node.operator isa LossyTrees.Operator{:(==)}
         # NOTE: Lox and Julia share the same equality logic on Lox types on nil/nothing,
         # but in Julia (not Lox) true == 1, so we need to special case this.
-        eval_infix_expr = :(xor(__julox_left__ isa Bool, __julox_right__ isa Bool) ? false : __julox_left__ == __julox_right__)
+        eval_infix_expr = :(xor(left isa Bool, right isa Bool) ? false : left == right)
     elseif node.operator isa LossyTrees.Operator{:!=}
         # NOTE: Same special case as above in `==`.
-        eval_infix_expr = :(xor(__julox_left__ isa Bool, __julox_right__ isa Bool) ? true : __julox_left__ != __julox_right__)
+        eval_infix_expr = :(xor(left isa Bool, right isa Bool) ? true : left != right)
     else
         # All other ops follow the same pattern of checking runtime types and then passing through cleanly.
         op_kind = _op_kind(operator)
         @assert op_kind ∈ [:-, :/, :*, :>, :>=, :<, :<=]
         eval_infix_expr = Expr(
             :block,
-            :(__raise_on_non_number_in_operation__($pos, __julox_left__, __julox_right__)),
-            Expr(:call, op_kind, :__julox_left__, :__julox_right__)
+            :(raise_on_non_number_in_operation($pos, left, right)),
+            Expr(:call, op_kind, :left, :right)
         )
     end
     return Expr(:let, bind_left_right, eval_infix_expr)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.VariableDeclaration)
-    var_name::Symbol = _mangle_identifier(LossyTrees.value(node.name))
+    var_name::Symbol = _declare_mangled_identifier_name(state, node)
     var_expr = transpile(state, node.initializer)
     return Expr(:(=), var_name, var_expr)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.Assign)
-    # NOTE: Since static analysis checks for nonexistent symbols before the transpilation step,
-    # `var_name` must already be defined in the current Julia scope.
-    # If we don't want to trust the static analysis step, we can add a runtime function
-    # akin to `__raise_on_non_number_in_operation__` that uses the `@isdefined` macro.
-
     # Grab the name and value for the assignment.
-    var_name::Symbol = _mangle_identifier(LossyTrees.value(node.name))
+    var_name::Symbol = _get_mangled_identifier_name(state, node)
     var_expr = transpile(state, node.value)
 
     # Prepare the resulting expression.
-    result = Expr(:(=), var_name, var_expr)
-
-    # If the variable is global, we need to transpile to `global x = "foo"` instead of `x = "foo"`.
-    # See: https://docs.julialang.org/en/v1/manual/variables-and-scoping/#local-scope
-    is_global_target = !haskey(state.local_scope_map, node)
-    if is_global_target
-        result = Expr(:global, result)
-    end
+    result = Expr(:block, _raise_on_undefined(state, node), Expr(:(=), var_name, var_expr))
     return result
 end
 
-function _raise_on_undefined(pos::Int, lox_identifier::Symbol, item_kind::String)
-    julia_identifier = _mangle_identifier(lox_identifier)
-    error_message = "Cannot get undefined $(item_kind) '$(lox_identifier)'"
-    return :(!(@isdefined $julia_identifier) && throw(__RuntimeError__($error_message, $pos)))
+function transpile(state::TranspilerState, node::LossyTrees.Variable)
+    return Expr(:block, _raise_on_undefined(state, node), _get_mangled_identifier_name(state, node))
 end
 
-function transpile(state::TranspilerState, node::LossyTrees.Variable)
-    lox_identifier::Symbol = LossyTrees.value(node.name)
-    raise_on_undefined_expr = _raise_on_undefined(position(node.name), lox_identifier, "variable")
-    return Expr(:block, raise_on_undefined_expr, _mangle_identifier(lox_identifier))
+function _raise_on_undefined(state::TranspilerState, node::LossyTrees.AbstractAccess)
+    if node isa LossyTrees.Variable
+        action = "get"
+    elseif node isa LossyTrees.Assign
+        action = "set"
+    else
+        error("Should only hit undefined on variables or assigment")
+    end
+    lox_name::Symbol = LossyTrees.value(node.name)
+    julia_name::Symbol = _get_mangled_identifier_name(state, node)
+    pos = position(node.name)
+    error_message = "Cannot $(action) undefined variable '$(lox_name)'"
+    return :(!(@isdefined $julia_name) && throw(RuntimeError($error_message, $pos)))
 end
+
+# function _try_get_identifier(pos::Int, lox_identifier::Symbol, item_kind::String)
+#     julia_identifier = _mangle_identifier(lox_identifier)
+#     error_message = "Cannot get undefined $(item_kind) '$(lox_identifier)'"
+#     return quote
+#         try
+#             $julia_identifier
+#         catch e
+#             !isa(e, UndefVarError) && rethrow()
+#             throw(RuntimeError($error_message, $pos))
+#         end
+#     end
+# end
+
+
 
 function transpile(state::TranspilerState, node::LossyTrees.If)
-    condition = Expr(:call, :__truthy__, transpile(state, node.condition))
+    condition = Expr(:call, :truthy, transpile(state, node.condition))
     then_statement = transpile(state, node.then_statement)
     if isnothing(node.else_statement)
         return Expr(:if, condition, then_statement)
@@ -255,7 +310,7 @@ function transpile(state::TranspilerState, node::LossyTrees.If)
 end
 
 function transpile(state::TranspilerState, node::LossyTrees.While)
-    condition = Expr(:call, :__truthy__, transpile(state, node.condition))
+    condition = Expr(:call, :truthy, transpile(state, node.condition))
     if isnothing(node.statement)
         return Expr(:while, condition)
     else
@@ -270,9 +325,9 @@ function transpile(state::TranspilerState, node::LossyTrees.Logical)
     right = transpile(state, node.right)
     op = _op_kind(node.operator)
     if op == :or
-        return :(__truthy__($left) ? $left : $right)
+        return :(truthy($left) ? $left : $right)
     elseif op == :and
-        return :(!__truthy__($left) ? $left : $right)
+        return :(!truthy($left) ? $left : $right)
     else
         @assert false "expect :and or :or"
     end

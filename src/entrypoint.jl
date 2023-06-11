@@ -104,7 +104,7 @@ function _prepare_to_run(output_io::IO, error_io::IO, source::String, verbose::B
     end
 
     # Resolve variables (resolving the semantics).
-    locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
+    global_declarations, locals, diagnostics = Resolver.resolve_scopes(lossy_tree)
     if !isempty(diagnostics)
         SyntaxValidation.show_diagnostics(error_io, diagnostics, source)
         return 65
@@ -114,7 +114,7 @@ function _prepare_to_run(output_io::IO, error_io::IO, source::String, verbose::B
     if verbose
         print_analysis_results(output_io, locals, source)
     end
-    return lossy_tree, locals
+    return lossy_tree, global_declarations, locals
 end
 
 function run(output_io::IO, error_io::IO, interpreter_state::Interpret.InterpreterState, source::String, verbose::Bool)
@@ -124,7 +124,7 @@ function run(output_io::IO, error_io::IO, interpreter_state::Interpret.Interpret
     # Check if `prep_result` returned a return code (i.e. empty input or error) that should be propagated.
     # Otherwise, unpack.
     prep_result isa Int && return prep_result
-    lossy_tree, locals = prep_result
+    lossy_tree, _, locals = prep_result
 
     # Tell the interpreter about the new local scope mapping from static analysis.
     merge!(Interpret.local_scope_map(interpreter_state), locals)
@@ -146,9 +146,12 @@ function run_transpiled(output_io::IO, error_io::IO, state::Transpile.Transpiler
     # Check if `prep_result` returned a return code (i.e. empty input or error) that should be propagated.
     # Otherwise, unpack.
     prep_result isa Int && return prep_result
-    lossy_tree, locals = prep_result
+    lossy_tree, global_declarations, locals = prep_result
 
-    # Tell the interpreter about the new local scope mapping from static analysis.
+    # Tell the interpreter about the new global declarations and local scope mapping from static analysis.
+    for decl in global_declarations
+        push!(Transpile.global_declarations(state), decl)
+    end
     merge!(Transpile.local_scope_map(state), locals)
 
     # Transpile.

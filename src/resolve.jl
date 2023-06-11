@@ -16,13 +16,21 @@ _assert_valid_class_type(current_class_type::Symbol) = @assert current_class_typ
 
 struct ResolverState
     scopes::Vector{Scope}
+    global_declarations::Set{LossyTrees.Identifier}
     locals::Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}
     diagnostics::Vector{SyntaxValidation.Diagnostic}
     current_function::Ref{Symbol}
     current_class::Ref{Symbol}
 
     function ResolverState()
-        return new(Scope[], Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}(), SyntaxValidation.Diagnostic[], Ref(:none), Ref(:none))
+        return new(
+            Scope[],
+            Set{LossyTrees.Identifier}(),
+            Dict{LossyTrees.AbstractExpression,Tuple{LossyTrees.Identifier,Int}}(),
+            SyntaxValidation.Diagnostic[],
+            Ref(:none),
+            Ref(:none),
+        )
     end
 end
 
@@ -38,8 +46,11 @@ end
 
 
 function declare!(state::ResolverState, name::LossyTrees.Identifier)
-    # Do nothing in the global scope.
-    isempty(state.scopes) && return nothing
+    # In the global scope, we just track the declaration.
+    if isempty(state.scopes)
+        push!(state.global_declarations, name)
+        return nothing
+    end
 
     current_scope = last(state.scopes)
     symbol = LossyTrees.value(name)
@@ -93,11 +104,9 @@ end
 #-------------------------------------------------------------------------------
 # Resolving reading from and writing to variables.
 
-VariableAccessNode = Union{LossyTrees.Variable,LossyTrees.Assign,LossyTrees.ThisExpression,LossyTrees.SuperExpression}
-
 function resolve(
     state::ResolverState,
-    node::VariableAccessNode,
+    node::LossyTrees.AbstractAccess,
     depth::Int
 )
     state.locals[node] = depth
@@ -105,7 +114,7 @@ end
 
 function resolve_local(
     state::ResolverState,
-    node::VariableAccessNode,
+    node::LossyTrees.AbstractAccess,
     symbol::Symbol
 )
     for (i, scope) in enumerate(state.scopes[end:-1:1])
@@ -297,7 +306,7 @@ function analyze(state::ResolverState, node::LossyTrees.ReturnStatement)
     if !isnothing(node.return_value)
         if current_function(state) == :initializer
             diagnostic = SyntaxValidation.Diagnostic(
-                node.lossless_node, "can't return a value from and initializer"
+                node.lossless_node, "can't return a value from an initializer"
             )
             push!(state.diagnostics, diagnostic)
         end
@@ -370,7 +379,7 @@ end
 function resolve_scopes(node::LossyTrees.Toplevel)
     state = ResolverState()
     analyze(state, node)
-    return state.locals, state.diagnostics
+    return state.global_declarations, state.locals, state.diagnostics
 end
 
 end  # module Resolver
