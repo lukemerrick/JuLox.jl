@@ -282,21 +282,6 @@ function _raise_on_undefined(state::TranspilerState, node::LossyTrees.AbstractAc
     return :(!(@isdefined $julia_name) && throw(RuntimeError($error_message, $pos)))
 end
 
-# function _try_get_identifier(pos::Int, lox_identifier::Symbol, item_kind::String)
-#     julia_identifier = _mangle_identifier(lox_identifier)
-#     error_message = "Cannot get undefined $(item_kind) '$(lox_identifier)'"
-#     return quote
-#         try
-#             $julia_identifier
-#         catch e
-#             !isa(e, UndefVarError) && rethrow()
-#             throw(RuntimeError($error_message, $pos))
-#         end
-#     end
-# end
-
-
-
 function transpile(state::TranspilerState, node::LossyTrees.If)
     condition = Expr(:call, :truthy, transpile(state, node.condition))
     then_statement = transpile(state, node.then_statement)
