@@ -97,4 +97,4 @@ The parser generates events, not trees. We've got two syntax trees, one lossless
 ### 2023-05-27
 
 - Tree-walk interpreter functioning!
-- This repo published on GitHubu under the MIT license
+- This repo published on GitHub under the MIT license
